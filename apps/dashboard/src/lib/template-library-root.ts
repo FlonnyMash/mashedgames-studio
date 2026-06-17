@@ -16,10 +16,10 @@ export const monorepoRoot = path.resolve(dashboardRoot, "../..");
 /** apps/game-engine — used for sync-manifest-registry spawn cwd */
 export const gameEngineRoot = path.resolve(monorepoRoot, "apps/game-engine");
 
-/** apps/game-engine/src/templates */
+/** packages/templates/src — canonical TypeScript source for all game templates */
 export const engineTemplatesRoot = path.resolve(
-  gameEngineRoot,
-  "src/templates",
+  monorepoRoot,
+  "packages/templates/src",
 );
 
 export const TEMPLATES_DIR_NAME = "templates" as const;

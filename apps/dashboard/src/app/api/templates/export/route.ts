@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const result = buildTemplateZip(templateId);
+  const result = await buildTemplateZip(templateId);
   if (!result.ok) {
     return Response.json(
       { ok: false, error: result.error },
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const result = buildTemplateZip(templateId);
+  const result = await buildTemplateZip(templateId);
   if (!result.ok) {
     return Response.json(
       { ok: false, error: result.error },

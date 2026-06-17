@@ -12,6 +12,7 @@
     "start": "next start",
     "lint": "eslint",
     "publish-template": "tsx scripts/publish-template.ts",
+    "nuke-saves": "tsx scripts/nuke-saves.ts",
     "import-template": "tsx scripts/import-template-zip.ts"
   },
   "dependencies": {

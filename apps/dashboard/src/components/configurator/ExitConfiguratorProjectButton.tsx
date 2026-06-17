@@ -27,7 +27,7 @@ export function ExitConfiguratorProjectButton() {
     useWorkspaceSessionStore.getState().clearConfiguratorSession();
     useConfiguratorStore.getState().clearProject();
     setDialogOpen(false);
-    router.push("/configurator/projects");
+    router.replace("/configurator/projects");
   };
 
   const handleExit = () => {

@@ -5,9 +5,10 @@ import { useWorkspaceSessionStore } from "@/lib/workspace-session-store";
 import { useConfigStore } from "@/store/useConfigStore";
 import { useStudioConfigStore } from "@mashedgames/studio-engine";
 import type { GameTemplateId } from "@mashedgames/shared";
+import type { TemplateOverviewEntry } from "@/lib/template-overview-types";
 import { Loader2 } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 export function StudioTemplateGate({
   children,
@@ -32,10 +33,30 @@ export function StudioTemplateGate({
   const [error, setError] = useState<string | null>(null);
   const pendingUrlTemplateSyncRef = useRef<GameTemplateId | null>(null);
 
-  const templateOptions = useMemo(
-    () => getStudioTemplateOptions(),
-    [],
+  const staticTemplateOptions = useMemo(() => getStudioTemplateOptions(), []);
+  /** Set of IDs fetched live from /api/templates. Null = fetch pending. */
+  const [apiTemplateIds, setApiTemplateIds] = useState<Set<string> | null>(
+    null,
   );
+
+  const fetchApiTemplates = useCallback(() => {
+    fetch("/api/templates")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (data: { ok?: boolean; templates?: TemplateOverviewEntry[] } | null) => {
+          const ids =
+            data?.ok && Array.isArray(data.templates)
+              ? new Set(data.templates.map((t) => t.id))
+              : new Set<string>();
+          setApiTemplateIds(ids);
+        },
+      )
+      .catch(() => setApiTemplateIds(new Set()));
+  }, []);
+
+  useEffect(() => {
+    fetchApiTemplates();
+  }, [fetchApiTemplates]);
 
   useEffect(() => {
     if (detached || pathname !== "/studio" || !ready) {
@@ -77,8 +98,17 @@ export function StudioTemplateGate({
       return;
     }
 
-    const known = templateOptions.some((t) => t.id === effectiveTemplateId);
-    if (!known) {
+    const knownStatic = staticTemplateOptions.some(
+      (t) => t.id === effectiveTemplateId,
+    );
+    const knownApi = apiTemplateIds?.has(effectiveTemplateId) ?? false;
+
+    if (!knownStatic && apiTemplateIds === null) {
+      // API fetch still in flight — stay in loading state rather than error.
+      return;
+    }
+
+    if (!knownStatic && !knownApi) {
       setError(
         `Unknown template "${effectiveTemplateId}". Import it or pick from the list.`,
       );
@@ -102,9 +132,13 @@ export function StudioTemplateGate({
     }
 
     setError(null);
-    useWorkspaceSessionStore
-      .getState()
-      .setActiveStudioTemplate(effectiveTemplateId);
+    // Only bind session while on the workspace route — avoids undoing an exit
+    // to /studio/templates while the old ?template= query is still in flight.
+    if (pathname === "/studio") {
+      useWorkspaceSessionStore
+        .getState()
+        .setActiveStudioTemplate(effectiveTemplateId);
+    }
 
     if (selectedTemplateId !== effectiveTemplateId) {
       useStudioConfigStore
@@ -120,10 +154,12 @@ export function StudioTemplateGate({
     setReady(true);
   }, [
     activeSessionTemplateId,
+    apiTemplateIds,
     detached,
     effectiveTemplateId,
+    pathname,
     selectedTemplateId,
-    templateOptions,
+    staticTemplateOptions,
     templateParam,
     router,
   ]);
@@ -138,7 +174,10 @@ export function StudioTemplateGate({
         <p className="text-sm text-red-600">{error}</p>
         <button
           type="button"
-          onClick={() => router.push("/studio/templates")}
+          onClick={() => {
+            useWorkspaceSessionStore.getState().clearStudioSession();
+            router.replace("/studio/templates");
+          }}
           className="rounded-lg border border-zinc-200 px-4 py-2 text-sm hover:bg-zinc-50"
         >
           Back to templates

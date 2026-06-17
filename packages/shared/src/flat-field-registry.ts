@@ -1,83 +1,542 @@
 import type { AppMode } from "./flat-game-config";
 import type { GameConfig } from "./flat-game-config";
+import { normalizeTemplateId } from "./template-id";
 
-export type FlatFieldType = "color" | "image" | "slider" | "text" | "number";
+export type FlatFieldType =
+  | "color"
+  | "image"
+  | "slider"
+  | "text"
+  | "number"
+  | "toggle"
+  | "styled-text";
 
 export type FlatFieldSurface = "studio" | "configurator" | "both";
+
+/**
+ * Declares which flat GameConfig keys control inline style properties for a
+ * `"styled-text"` field. All bindings are optional; the toolbar renders only
+ * the controls whose key is declared. The underlying data stays flat — no
+ * nested objects, no HTML strings.
+ */
+export type StyleBindings = {
+  /** Key of a hex-color string field (e.g. `"startScreenTitleColor"`). */
+  colorKey?: keyof GameConfig & string;
+  /** Key of a boolean field that drives `fontWeight: bold`. */
+  boldKey?: keyof GameConfig & string;
+  /** Key of a boolean field that drives `fontStyle: italic`. */
+  italicKey?: keyof GameConfig & string;
+  /** Key of a boolean field that drives `textDecoration: underline`. */
+  underlineKey?: keyof GameConfig & string;
+};
 
 export type FlatFieldDefinition = {
   key: keyof GameConfig & string;
   type: FlatFieldType;
   surface: FlatFieldSurface;
   label: string;
+  /** Group this field belongs to. Ungrouped fields are rendered outside any accordion. */
+  group?: string;
   min?: number;
   max?: number;
   step?: number;
   placeholder?: string;
+  /**
+   * Only valid when `type === "styled-text"`. Declares which additional flat
+   * keys drive inline color/bold/italic styling on this text field. The bound
+   * keys are NOT rendered as separate rows — the `StyledTextInput` toolbar
+   * owns their controls.
+   */
+  styleBindings?: StyleBindings;
+  /** When set, the field is shown only for these template ids. */
+  templateIds?: string[];
+  /** Shown in the panel when the config key is unset. */
+  defaultValue?: number | string | boolean;
 };
 
+// ---------------------------------------------------------------------------
+// Group definitions
+//
+// Declares logical sections for the sidebar panel. The masterVisibilityKey
+// must be a boolean GameConfig key; when present it is rendered as a toggle
+// in the group header rather than inside the body, and its value controls
+// whether nested fields are interactive.
+// ---------------------------------------------------------------------------
+
+export type GroupDefinition = {
+  /** Unique group identifier referenced by FlatFieldDefinition.group. */
+  id: string;
+  /** Human-readable heading shown in the accordion header. */
+  label: string;
+  /** Surface visibility — same semantics as FlatFieldDefinition.surface. */
+  surface: FlatFieldSurface;
+  /**
+   * A boolean GameConfig key whose value acts as master visibility for this group.
+   * When defined the toggle is rendered in the group header. Turning it off
+   * visually disables all body fields and writes the false value to flat config.
+   */
+  masterVisibilityKey?: keyof GameConfig & string;
+  /** When true the accordion is collapsed by default. */
+  defaultCollapsed?: boolean;
+  /** When set, the group is shown only for these template ids. */
+  templateIds?: string[];
+};
+
+export const GROUP_REGISTRY: GroupDefinition[] = [
+  {
+    id: "branding",
+    label: "Branding",
+    surface: "both",
+  },
+  {
+    id: "startScreen",
+    label: "Start Screen",
+    surface: "both",
+    masterVisibilityKey: "showStartScreen",
+  },
+  {
+    id: "highscore",
+    label: "Highscore Board",
+    surface: "both",
+    masterVisibilityKey: "showHighscore",
+    defaultCollapsed: true,
+  },
+  {
+    id: "leadCapture",
+    label: "Lead Capture",
+    surface: "both",
+    masterVisibilityKey: "showLeadCapture",
+    defaultCollapsed: false,
+  },
+  {
+    id: "timer",
+    label: "Countdown Timer",
+    surface: "both",
+    masterVisibilityKey: "showCountdownTimer",
+    defaultCollapsed: false,
+  },
+  {
+    id: "gameSprites",
+    label: "Game Sprites",
+    surface: "both",
+    templateIds: ["catch-game"],
+    defaultCollapsed: false,
+  },
+  {
+    id: "goodCollectibles",
+    label: "Good Items",
+    surface: "both",
+    templateIds: ["catch-game"],
+    defaultCollapsed: false,
+  },
+  {
+    id: "badCollectibles",
+    label: "Bad Items",
+    surface: "both",
+    templateIds: ["catch-game"],
+    defaultCollapsed: false,
+  },
+];
+
 export const FLAT_FIELD_REGISTRY: FlatFieldDefinition[] = [
+  // ── Branding ──────────────────────────────────────────────────────────────
   {
     key: "themeColor",
     type: "color",
     surface: "both",
     label: "Theme color",
+    group: "branding",
   },
   {
     key: "backgroundColor",
     type: "color",
     surface: "studio",
     label: "Background color",
+    group: "branding",
   },
   {
     key: "logoUrl",
     type: "image",
     surface: "both",
     label: "Logo",
+    group: "branding",
   },
+  // ── Start Screen ──────────────────────────────────────────────────────────
+  // showStartScreen is the masterVisibilityKey — rendered in the group header,
+  // not in this list.
+  // Color/bold/italic keys are NOT separate rows — they live inside the
+  // StyledTextInput toolbar via styleBindings.
   {
     key: "startScreenTitle",
-    type: "text",
+    type: "styled-text",
     surface: "both",
-    label: "Start screen title",
+    label: "Title",
     placeholder: "Ready to play?",
+    group: "startScreen",
+    styleBindings: {
+      colorKey: "startScreenTitleColor",
+      boldKey: "startScreenTitleBold",
+      italicKey: "startScreenTitleItalic",
+      underlineKey: "startScreenTitleUnderline",
+    },
   },
   {
     key: "startScreenSubtitle",
-    type: "text",
+    type: "styled-text",
     surface: "both",
-    label: "Start screen subtitle",
+    label: "Subtitle",
     placeholder: "Tap start when you are ready.",
+    group: "startScreen",
+    styleBindings: {
+      colorKey: "startScreenSubtitleColor",
+      boldKey: "startScreenSubtitleBold",
+      italicKey: "startScreenSubtitleItalic",
+      underlineKey: "startScreenSubtitleUnderline",
+    },
   },
   {
     key: "ctaLabel",
-    type: "text",
+    type: "styled-text",
     surface: "both",
     label: "CTA label",
     placeholder: "Start Game",
-  },
-  {
-    key: "playerSpeed",
-    type: "slider",
-    surface: "studio",
-    label: "Player speed",
-    min: 100,
-    max: 600,
-    step: 10,
+    group: "startScreen",
+    styleBindings: {
+      colorKey: "ctaTextColor",
+      boldKey: "ctaLabelBold",
+      italicKey: "ctaLabelItalic",
+      underlineKey: "ctaLabelUnderline",
+    },
   },
   {
     key: "gameDurationSeconds",
     type: "number",
-    surface: "studio",
-    label: "Game duration (seconds)",
+    surface: "both",
+    label: "Duration (seconds)",
     min: 10,
     max: 300,
     step: 5,
+    group: "timer",
+  },
+  {
+    key: "goodItemPoints",
+    type: "number",
+    surface: "both",
+    label: "Good item points",
+    min: 1,
+    max: 100,
+    step: 1,
+    group: "goodCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 10,
+  },
+  {
+    key: "spawnIntervalMs",
+    type: "number",
+    surface: "both",
+    label: "Spawn interval (ms)",
+    min: 300,
+    max: 3000,
+    step: 50,
+    group: "goodCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 900,
+  },
+  {
+    key: "minSpawnIntervalMs",
+    type: "number",
+    surface: "both",
+    label: "Fastest spawn (ms)",
+    min: 150,
+    max: 2000,
+    step: 50,
+    group: "goodCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 420,
+  },
+  {
+    key: "fallSpeedStart",
+    type: "number",
+    surface: "both",
+    label: "Fall speed start",
+    min: 80,
+    max: 400,
+    step: 10,
+    group: "goodCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 150,
+  },
+  {
+    key: "fallSpeedMax",
+    type: "number",
+    surface: "both",
+    label: "Fall speed max",
+    min: 120,
+    max: 700,
+    step: 10,
+    group: "goodCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 280,
+  },
+  {
+    key: "badItemPenalty",
+    type: "number",
+    surface: "both",
+    label: "Penalty points",
+    min: 0,
+    max: 50,
+    step: 1,
+    group: "badCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 5,
+  },
+  {
+    key: "badSpawnIntervalMs",
+    type: "number",
+    surface: "both",
+    label: "Spawn interval (ms)",
+    min: 300,
+    max: 5000,
+    step: 50,
+    group: "badCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 1800,
+  },
+  {
+    key: "badMinSpawnIntervalMs",
+    type: "number",
+    surface: "both",
+    label: "Fastest spawn (ms)",
+    min: 150,
+    max: 3000,
+    step: 50,
+    group: "badCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 900,
+  },
+  {
+    key: "badFallSpeedStart",
+    type: "number",
+    surface: "both",
+    label: "Fall speed start",
+    min: 80,
+    max: 400,
+    step: 10,
+    group: "badCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 130,
+  },
+  {
+    key: "badFallSpeedMax",
+    type: "number",
+    surface: "both",
+    label: "Fall speed max",
+    min: 120,
+    max: 700,
+    step: 10,
+    group: "badCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 260,
+  },
+  // ── Game Sprites (catch-game) ─────────────────────────────────────────────
+  {
+    key: "playerCatcherUrl",
+    type: "image",
+    surface: "both",
+    label: "Catcher",
+    group: "gameSprites",
+    templateIds: ["catch-game"],
+  },
+  {
+    key: "collectibleGoodUrl",
+    type: "image",
+    surface: "both",
+    label: "Good collectible",
+    group: "gameSprites",
+    templateIds: ["catch-game"],
+  },
+  {
+    key: "collectibleBadUrl",
+    type: "image",
+    surface: "both",
+    label: "Bad collectible",
+    group: "gameSprites",
+    templateIds: ["catch-game"],
+  },
+  // ── Lead Capture ──────────────────────────────────────────────────────────
+  {
+    key: "leadCaptureTitle",
+    type: "styled-text",
+    surface: "both",
+    label: "Title",
+    placeholder: "Great run!",
+    group: "leadCapture",
+    styleBindings: {
+      colorKey: "leadCaptureTitleColor",
+      boldKey: "leadCaptureTitleBold",
+      italicKey: "leadCaptureTitleItalic",
+      underlineKey: "leadCaptureTitleUnderline",
+    },
+  },
+  {
+    key: "leadCaptureSubtitle",
+    type: "styled-text",
+    surface: "both",
+    label: "Subtitle",
+    placeholder: "Enter your details to save your score.",
+    group: "leadCapture",
+    styleBindings: {
+      colorKey: "leadCaptureSubtitleColor",
+      boldKey: "leadCaptureSubtitleBold",
+      italicKey: "leadCaptureSubtitleItalic",
+      underlineKey: "leadCaptureSubtitleUnderline",
+    },
+  },
+  {
+    key: "leadCaptureNamePlaceholder",
+    type: "text",
+    surface: "both",
+    label: "Name placeholder",
+    placeholder: "Your name",
+    group: "leadCapture",
+  },
+  {
+    key: "leadCaptureEmailPlaceholder",
+    type: "text",
+    surface: "both",
+    label: "Email placeholder",
+    placeholder: "Email address",
+    group: "leadCapture",
+  },
+  {
+    key: "leadCaptureSubmitLabel",
+    type: "styled-text",
+    surface: "both",
+    label: "Submit label",
+    placeholder: "Submit",
+    group: "leadCapture",
+    styleBindings: {
+      colorKey: "leadCaptureSubmitColor",
+      boldKey: "leadCaptureSubmitBold",
+      italicKey: "leadCaptureSubmitItalic",
+      underlineKey: "leadCaptureSubmitUnderline",
+    },
+  },
+  {
+    key: "leadCaptureRetryLabel",
+    type: "styled-text",
+    surface: "both",
+    label: "Try again label",
+    placeholder: "Try again",
+    group: "leadCapture",
+    styleBindings: {
+      colorKey: "leadCaptureRetryColor",
+      boldKey: "leadCaptureRetryBold",
+      italicKey: "leadCaptureRetryItalic",
+      underlineKey: "leadCaptureRetryUnderline",
+    },
+  },
+  // ── Highscore Board ───────────────────────────────────────────────────────
+  {
+    key: "highscoreTitle",
+    type: "styled-text",
+    surface: "both",
+    label: "Title",
+    placeholder: "Leaderboard",
+    group: "highscore",
+    styleBindings: {
+      colorKey: "highscoreTitleColor",
+      boldKey: "highscoreTitleBold",
+      italicKey: "highscoreTitleItalic",
+      underlineKey: "highscoreTitleUnderline",
+    },
+  },
+  {
+    key: "highscoreSubtitle",
+    type: "styled-text",
+    surface: "both",
+    label: "Subtitle",
+    placeholder: "Top scores this week",
+    group: "highscore",
+    styleBindings: {
+      colorKey: "highscoreSubtitleColor",
+      boldKey: "highscoreSubtitleBold",
+      italicKey: "highscoreSubtitleItalic",
+      underlineKey: "highscoreSubtitleUnderline",
+    },
   },
 ];
 
-export function fieldsForMode(mode: AppMode): FlatFieldDefinition[] {
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function matchesTemplate(
+  templateIds: string[] | undefined,
+  activeTemplateId?: string,
+): boolean {
+  if (!templateIds || templateIds.length === 0) {
+    return true;
+  }
+  if (!activeTemplateId) {
+    return true;
+  }
+  return templateIds.includes(normalizeTemplateId(activeTemplateId));
+}
+
+export function fieldsForMode(
+  mode: AppMode,
+  activeTemplateId?: string,
+): FlatFieldDefinition[] {
   const allowed: FlatFieldSurface[] =
     mode === "studio" ? ["studio", "both"] : ["configurator", "both"];
-  return FLAT_FIELD_REGISTRY.filter((field) => allowed.includes(field.surface));
+  return FLAT_FIELD_REGISTRY.filter(
+    (field) =>
+      allowed.includes(field.surface) &&
+      matchesTemplate(field.templateIds, activeTemplateId),
+  );
+}
+
+export function groupsForMode(
+  mode: AppMode,
+  activeTemplateId?: string,
+): GroupDefinition[] {
+  const allowed: FlatFieldSurface[] =
+    mode === "studio" ? ["studio", "both"] : ["configurator", "both"];
+  return GROUP_REGISTRY.filter((group) => {
+    if (!allowed.includes(group.surface)) {
+      return false;
+    }
+    if (!matchesTemplate(group.templateIds, activeTemplateId)) {
+      return false;
+    }
+    if (group.masterVisibilityKey) {
+      return true;
+    }
+    return fieldsForGroup(group.id, mode, activeTemplateId).length > 0;
+  });
+}
+
+/**
+ * Returns the body fields for a given group in the correct surface context.
+ * The masterVisibilityKey field is intentionally excluded — it lives in the
+ * group header, not the body.
+ */
+export function fieldsForGroup(
+  groupId: string,
+  mode: AppMode,
+  activeTemplateId?: string,
+): FlatFieldDefinition[] {
+  return fieldsForMode(mode, activeTemplateId).filter((f) => f.group === groupId);
+}
+
+/**
+ * Returns fields that carry no group assignment for the given mode.
+ * These are rendered above all accordion groups.
+ */
+export function ungroupedFields(
+  mode: AppMode,
+  activeTemplateId?: string,
+): FlatFieldDefinition[] {
+  return fieldsForMode(mode, activeTemplateId).filter((f) => !f.group);
 }

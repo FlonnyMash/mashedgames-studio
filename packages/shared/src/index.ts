@@ -23,6 +23,18 @@ export {
 } from "./asset-reference";
 
 export {
+  resolveAssetPreviewUrl,
+  type AssetPreviewContext,
+} from "./resolve-asset-preview-url";
+
+export {
+  CONFIG_TEXTURE_FIELD_MAP,
+  listConfiguredAssetUploads,
+  textureKeyForConfigField,
+  type ConfigAssetFieldKey,
+} from "./config-asset-fields";
+
+export {
   AppModeSchema,
   DEFAULT_GAME_CONFIG,
   DEFAULT_GAME_TEMPLATE_ID,
@@ -40,11 +52,29 @@ export {
 } from "./flat-game-config";
 
 export {
+  BASELINE_TEMPLATE_ID,
+  LEGACY_DEFAULT_TEMPLATE_ID,
+  isLegacyTemplateId,
+  normalizeTemplateId,
+} from "./template-id";
+
+export {
+  CATCH_GAME_CONFIG_DEFAULTS,
+  applyTemplateConfigDefaults,
+} from "./template-config-defaults";
+
+export {
   FLAT_FIELD_REGISTRY,
+  GROUP_REGISTRY,
+  fieldsForGroup,
   fieldsForMode,
+  groupsForMode,
+  ungroupedFields,
   type FlatFieldDefinition,
   type FlatFieldSurface,
   type FlatFieldType,
+  type GroupDefinition,
+  type StyleBindings,
 } from "./flat-field-registry";
 
 export {
@@ -56,14 +86,17 @@ export {
   ConfigUpdatedMessageSchema,
   EngineReadyMessageSchema,
   GameEventMessageSchema,
+  GameLifecycleEventMessageSchema,
   LoadExternalAssetMessageSchema,
   LoadTemplateMessageSchema,
   SetRuntimeAssetsMessageSchema,
   UpdateConfigMessageSchema,
   isAssetLoadErrorMessage,
   isConfigUpdatedMessage,
+  isEngineControlMessage,
   isEngineReadyMessage,
   isGameEventMessage,
+  isGameLifecycleEventMessage,
   isLoadTemplateMessage,
   isUpdateConfigMessage,
   parseBridgeMessage,
@@ -74,12 +107,17 @@ export {
   type BridgeMessageType,
   type ConfigSyncPayload,
   type ConfigUpdatedMessage,
+  type EngineControlAction,
+  type EngineControlMessage,
   type EngineReadyMessage,
   type GameEventMessage,
+  type GameLifecycleEventMessage,
   type LoadExternalAssetMessage,
   type LoadTemplateMessage,
   type SetRuntimeAssetsMessage,
   type UpdateConfigMessage,
+  EngineControlActionSchema,
+  EngineControlMessageSchema,
 } from "./bridge-contract";
 
 export {
@@ -89,11 +127,13 @@ export {
   ParentDriftItemSchema,
   ParentDriftReportSchema,
   ParentLockSnapshotSchema,
+  SaveModeSchema,
   type ClientProjectPayload,
   type GameProjectManifest,
   type ParentDriftItem,
   type ParentDriftReport,
   type ParentLockSnapshot,
+  type SaveMode,
 } from "./game-project";
 
 export {
@@ -143,3 +183,31 @@ export {
   getWorkspacePathFromEnv,
   type EnsureWorkspaceOptions,
 } from "./workspace";
+
+export {
+  GAME_LIFECYCLE_EVENT_TYPE,
+  GameLifecycleEventPayloadSchema,
+  GameLifecycleEventTypeSchema,
+  parseGameLifecycleEventPayload,
+  type GameLifecycleEventPayload,
+  type GameLifecycleEventType,
+  type GameOverlaySubscriber,
+} from "./game-events";
+
+export {
+  UI_MODULE,
+  UIModuleSchema,
+  AssetFormatSchema,
+  AssetDimensionsSchema,
+  AssetRestrictionSchema,
+  ConfigFieldHintSchema,
+  TemplateSchemaSchema,
+  isLockedField,
+  supportsUIModule,
+  parseTemplateSchema,
+  type AssetFormat,
+  type AssetRestriction,
+  type ConfigFieldHint,
+  type TemplateSchema,
+  type UIModule,
+} from "./template-schema";

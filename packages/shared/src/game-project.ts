@@ -4,6 +4,15 @@ import { GameConfigSchema } from "./flat-game-config";
 /** Kebab-case slug for project folder names. */
 export const PROJECT_ID_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
+/**
+ * Discriminates which product surface owns a saved project.
+ * Optional in the schema so that manifests written before this field
+ * was introduced parse successfully — absent = legacy, filtered out
+ * from all mode-scoped list queries.
+ */
+export const SaveModeSchema = z.enum(["studio", "configurator"]);
+export type SaveMode = z.infer<typeof SaveModeSchema>;
+
 export const GameProjectManifestSchema = z.object({
   projectId: z.string().regex(PROJECT_ID_PATTERN),
   displayName: z.string().min(1),
@@ -13,6 +22,8 @@ export const GameProjectManifestSchema = z.object({
   parentContentHash: z.string().optional(),
   lastParentAckAt: z.string(),
   createdAt: z.string(),
+  /** Which product surface created this project. Absent on legacy saves. */
+  mode: SaveModeSchema.optional(),
   deployRepoUrl: z.string().url().optional(),
   /** Relative asset path (e.g. assets/logo.png) → absolute OS path for Electron preview. */
   runtimeAssets: z.record(z.string(), z.string()).optional(),

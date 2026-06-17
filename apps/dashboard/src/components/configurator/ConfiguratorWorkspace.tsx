@@ -8,12 +8,12 @@ import {
   loadFlatConfigViaElectron,
   saveFlatConfigViaElectron,
 } from "@/lib/flat-config-ipc";
+import { applyAssetUploadToPreview } from "@/lib/apply-asset-upload-to-preview";
 import { saveProjectAssetWithFallback } from "@/lib/import-project-asset-client";
 import {
   pushRuntimeAssetsToPreview,
   usePreviewBridgeStore,
 } from "@/lib/preview-bridge-store";
-import { isWorkspaceDesktopClient } from "@/lib/runtime-env";
 import { useConfigStore } from "@/store/useConfigStore";
 import {
   ConfiguratorSidebar,
@@ -41,20 +41,32 @@ export function ConfiguratorWorkspace({
 
   const isDesktop = typeof window !== "undefined" && Boolean(window.electron);
 
+  // Refresh the save list whenever the desktop runtime loads or the open
+  // project changes — saves are scoped to the current projectId only.
   useEffect(() => {
-    if (!isDesktop) return;
-    getProjectListViaElectron()
+    if (!isDesktop || !projectId) {
+      setAvailableProjects([]);
+      return;
+    }
+    getProjectListViaElectron("configurator", { projectId })
       .then(setAvailableProjects)
       .catch(() => setAvailableProjects([]));
-  }, [isDesktop]);
+  }, [isDesktop, projectId]);
 
-  const handleSave = useCallback(async (projectName: string) => {
-    const config = useConfiguratorStore.getState().config;
-    await saveFlatConfigViaElectron(projectName, config);
-    getProjectListViaElectron()
-      .then(setAvailableProjects)
-      .catch(() => undefined);
-  }, []);
+  const handleSave = useCallback(
+    async (projectName: string) => {
+      const config = useConfiguratorStore.getState().config;
+      await saveFlatConfigViaElectron(projectName, config);
+      const currentProjectId = useConfiguratorStore.getState().projectId;
+      if (!currentProjectId) return;
+      getProjectListViaElectron("configurator", {
+        projectId: currentProjectId,
+      })
+        .then(setAvailableProjects)
+        .catch(() => undefined);
+    },
+    [],
+  );
 
   const handleLoad = useCallback(async (projectName: string) => {
     try {
@@ -81,7 +93,7 @@ export function ConfiguratorWorkspace({
   }, []);
 
   useEffect(() => {
-    if (!projectId || !isWorkspaceDesktopClient()) {
+    if (!projectId) {
       setAssetSaveHandler(null);
       return;
     }
@@ -93,20 +105,17 @@ export function ConfiguratorWorkspace({
         targetPath: input.fieldKey,
       });
 
-      const runtimeAssets =
-        data.manifest?.runtimeAssets ??
-        {
-          ...usePreviewBridgeStore.getState().runtimeAssets,
-          [data.relativePath]: data.absolutePath,
-        };
-
-      usePreviewBridgeStore.getState().setRuntimeAssets(runtimeAssets);
-      pushRuntimeAssetsToPreview();
-
-      const messenger = usePreviewBridgeStore.getState().messenger;
-      if (data.textureKey && messenger) {
-        messenger.sendLoadExternalAsset(data.textureKey, data.absolutePath);
+      if (data.manifest?.runtimeAssets) {
+        usePreviewBridgeStore
+          .getState()
+          .setRuntimeAssets(data.manifest.runtimeAssets);
       }
+
+      applyAssetUploadToPreview({
+        relativePath: data.relativePath,
+        absolutePath: data.absolutePath,
+        textureKey: data.textureKey,
+      });
 
       return data;
     });

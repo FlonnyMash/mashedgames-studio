@@ -1,4 +1,5 @@
 import { getProjectDetails } from "@/lib/project-io";
+import { normalizeTemplateId } from "@mashedgames/shared";
 import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
@@ -22,7 +23,10 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     projectId: data.manifest.projectId,
     repositoryPath: data.repositoryPath,
     directoryPath: data.directoryPath,
-    manifest: data.manifest,
+    manifest: {
+      ...data.manifest,
+      parentTemplateId: normalizeTemplateId(data.manifest.parentTemplateId),
+    },
     createdAt: data.manifest.createdAt,
     updatedAt: data.updatedAt,
   });

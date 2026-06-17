@@ -13,7 +13,7 @@ export function ExitStudioTemplateButton() {
         type="button"
         onClick={() => {
           useWorkspaceSessionStore.getState().clearStudioSession();
-          router.push("/studio/templates");
+          router.replace("/studio/templates");
         }}
         className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
       >

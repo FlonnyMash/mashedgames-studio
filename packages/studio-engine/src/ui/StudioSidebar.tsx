@@ -1,14 +1,23 @@
 "use client";
 
+import type { FlatFieldDefinition } from "@mashedgames/shared";
 import { useStudioConfigStore } from "../store/useStudioConfigStore";
 import { FlatConfigPanel } from "./FlatConfigPanel";
 
 export function StudioSidebar({
   previewSlot,
+  onImageFile,
 }: {
   previewSlot?: React.ReactNode;
+  onImageFile?: (
+    file: File,
+    field: FlatFieldDefinition,
+  ) => void | Promise<void>;
 }) {
   const config = useStudioConfigStore((state) => state.config);
+  const selectedTemplateId = useStudioConfigStore(
+    (state) => state.selectedTemplateId,
+  );
   const patchConfig = useStudioConfigStore((state) => state.patchConfig);
   const resetConfig = useStudioConfigStore((state) => state.resetConfig);
 
@@ -29,7 +38,12 @@ export function StudioSidebar({
       </header>
 
       <div className="flex-1 overflow-y-auto px-6 py-6">
-        <FlatConfigPanel config={config} onFieldChange={patchConfig} />
+        <FlatConfigPanel
+          config={config}
+          onFieldChange={patchConfig}
+          onImageFile={onImageFile}
+          assetPreviewContext={{ templateId: selectedTemplateId }}
+        />
         {previewSlot}
       </div>
     </aside>

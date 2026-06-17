@@ -4,7 +4,7 @@ import {
   AssetWorkspaceSaveError,
   saveAssetToWorkspace,
 } from "@/lib/save-asset-to-workspace";
-import type { GameProjectManifest } from "@mashedgames/shared";
+import { textureKeyForConfigField, type GameProjectManifest } from "@mashedgames/shared";
 
 export type ImportAssetClientResult = {
   relativePath: string;
@@ -14,10 +14,7 @@ export type ImportAssetClientResult = {
 };
 
 function textureKeyForTargetPath(targetPath: string): string | null {
-  if (targetPath === "logoUrl") {
-    return "logo";
-  }
-  return null;
+  return textureKeyForConfigField(targetPath);
 }
 
 type ImportAssetApiResponse = {

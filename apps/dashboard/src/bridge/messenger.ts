@@ -4,6 +4,7 @@ import {
   BRIDGE_MESSAGE_TYPE,
   ConfigSyncPayloadSchema,
   ConfigUpdatedMessageSchema,
+  EngineControlMessageSchema,
   EngineReadyMessageSchema,
   GameConfigSchema,
   LoadExternalAssetPayloadSchema,
@@ -12,15 +13,19 @@ import {
   isAssetLoadErrorMessage,
   isEngineReadyMessage,
   isGameEventMessage,
+  isGameLifecycleEventMessage,
   isLoadTemplateMessage,
   resolveGameEngineBaseUrl,
   type AppMode,
   type AssetLoadErrorPayload,
   type AssetReadyPayload,
   type ConfigSyncPayload,
+  type EngineControlAction,
   type GameConfig,
   type GameEventMessage,
+  type GameLifecycleEventPayload,
   type GameTemplateId,
+  GameLifecycleEventMessageSchema,
   LoadTemplateMessageSchema,
 } from "@mashedgames/shared";
 
@@ -131,6 +136,9 @@ class DashboardMessenger {
   private pendingLoadTemplate: GameTemplateId | null = null;
   private gameEventHandler: ((message: GameEventMessage) => void) | null =
     null;
+  private gameLifecycleEventHandler:
+    | ((payload: GameLifecycleEventPayload) => void)
+    | null = null;
   private assetReadyHandler: ((payload: AssetReadyPayload) => void) | null =
     null;
   private engineReadyHandler:
@@ -221,6 +229,16 @@ class DashboardMessenger {
       return;
     }
 
+    if (isGameLifecycleEventMessage(event.data)) {
+      warnIfInvalid(
+        GameLifecycleEventMessageSchema,
+        event.data,
+        "GAME_LIFECYCLE_EVENT",
+      );
+      this.gameLifecycleEventHandler?.(event.data.payload);
+      return;
+    }
+
     if (isAssetLoadErrorMessage(event.data)) {
       warnIfInvalid(AssetLoadErrorMessageSchema, event.data, "ASSET_LOAD_ERROR");
       this.assetLoadErrorHandler?.(event.data.payload);
@@ -259,6 +277,17 @@ class DashboardMessenger {
     return () => {
       if (this.gameEventHandler === handler) {
         this.gameEventHandler = null;
+      }
+    };
+  }
+
+  onGameLifecycleEvent(
+    handler: (payload: GameLifecycleEventPayload) => void,
+  ): () => void {
+    this.gameLifecycleEventHandler = handler;
+    return () => {
+      if (this.gameLifecycleEventHandler === handler) {
+        this.gameLifecycleEventHandler = null;
       }
     };
   }
@@ -356,6 +385,31 @@ class DashboardMessenger {
     };
     warnIfInvalid(ConfigUpdatedMessageSchema, message, "CONFIG_UPDATED");
     postMessageToIframe(this.targetWindow, message, "CONFIG_UPDATED");
+  }
+
+  /**
+   * Sends an imperative ENGINE_CONTROL command across the iframe boundary via
+   * postMessage. Returns true when the message was actually dispatched to the
+   * engine iframe, false when the engine is not ready / not attached — callers
+   * must not assume the action happened in that case.
+   */
+  sendEngineControl(action: EngineControlAction): boolean {
+    if (!this.engineReady || !this.targetWindow) {
+      devWarn(
+        "sendEngineControl dropped — engine iframe not ready",
+        { action },
+      );
+      return false;
+    }
+    const message = {
+      type: BRIDGE_MESSAGE_TYPE.ENGINE_CONTROL,
+      payload: { action },
+    };
+    if (isDev) {
+      warnIfInvalid(EngineControlMessageSchema, message, "ENGINE_CONTROL");
+    }
+    this.targetWindow.postMessage(message, getBridgePostMessageTargetOrigin());
+    return true;
   }
 
   sendLoadTemplate(templateId: GameTemplateId): void {

@@ -446,6 +446,9 @@ importers:
       '@mashedgames/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@mashedgames/templates':
+        specifier: workspace:*
+        version: link:../../packages/templates
       phaser:
         specifier: ^4.1.0
         version: 4.1.0
@@ -541,6 +544,22 @@ importers:
       '@types/react':
         specifier: ^19
         version: 19.2.17
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
+  packages/templates:
+    dependencies:
+      '@mashedgames/shared':
+        specifier: workspace:*
+        version: link:../shared
+    devDependencies:
+      '@types/node':
+        specifier: ^20.19.42
+        version: 20.19.42
+      phaser:
+        specifier: ^4.1.0
+        version: 4.1.0
       typescript:
         specifier: ^5
         version: 5.9.3

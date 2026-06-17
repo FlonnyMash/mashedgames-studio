@@ -3,10 +3,13 @@ import {
   BridgeMessageSchema,
   ConfigSyncPayloadSchema,
   GameConfigSchema,
+  GameLifecycleEventPayloadSchema,
   LoadExternalAssetPayloadSchema,
   SetRuntimeAssetsPayloadSchema,
   type AssetLoadErrorPayload,
+  type EngineControlAction,
   type GameConfig,
+  type GameLifecycleEventPayload,
   type GameTemplateId,
 } from "@mashedgames/shared";
 import { loadExternalAsset } from "./external-asset-loader.ts";
@@ -23,6 +26,7 @@ export type EngineBridgeHandlers = {
   getCurrentConfig: () => GameConfig;
   getCurrentTemplateId: () => GameTemplateId;
   getGame: () => Phaser.Game | null;
+  onLoadTemplate?: (templateId: string) => void;
 };
 
 let currentTemplateId: GameTemplateId = "default";
@@ -80,6 +84,23 @@ export class EngineMessenger {
     );
   }
 
+  sendGameLifecycleEvent(payload: GameLifecycleEventPayload): void {
+    if (window.parent === window) return;
+
+    const parsed = GameLifecycleEventPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      return;
+    }
+
+    window.parent.postMessage(
+      {
+        type: BRIDGE_MESSAGE_TYPE.GAME_LIFECYCLE_EVENT,
+        payload: parsed.data,
+      },
+      getParentTargetOrigin(),
+    );
+  }
+
   private notifyConfigUpdate(config: GameConfig): void {
     for (const listener of this.configListeners) {
       listener(config);
@@ -117,7 +138,11 @@ export class EngineMessenger {
       }
       case BRIDGE_MESSAGE_TYPE.LOAD_TEMPLATE: {
         currentTemplateId = message.payload;
-        this.sendEngineReady();
+        if (handlers.onLoadTemplate) {
+          handlers.onLoadTemplate(message.payload);
+        } else {
+          this.sendEngineReady();
+        }
         break;
       }
       case BRIDGE_MESSAGE_TYPE.LOAD_EXTERNAL_ASSET: {
@@ -158,8 +183,32 @@ export class EngineMessenger {
         }
         break;
       }
+      case BRIDGE_MESSAGE_TYPE.ENGINE_CONTROL: {
+        this.handleEngineControl(message.payload.action);
+        break;
+      }
       default:
         break;
+    }
+  }
+
+  private handleEngineControl(action: EngineControlAction): void {
+    // Broadcast as a DOM CustomEvent so any non-Phaser listener can react.
+    window.dispatchEvent(new CustomEvent("engine:control", { detail: { action } }));
+
+    // Canonical local trigger consumed by main.ts.
+    if (action === "START_GAME") {
+      window.dispatchEvent(new CustomEvent("GAME_START"));
+      // Back-compat for older template bundles that still listen for the
+      // legacy ENGINE_START_GAME DOM event name.
+      window.dispatchEvent(new CustomEvent("ENGINE_START_GAME"));
+    }
+
+    // Also route through the Phaser game event bus so scenes can listen with
+    // `this.game.events.on("bridge:control", handler)` without coupling to DOM.
+    const game = this.handlers?.getGame();
+    if (game) {
+      game.events.emit("bridge:control", action);
     }
   }
 }
@@ -168,7 +217,12 @@ export const engineMessenger = new EngineMessenger();
 
 export function setupBridge(handlers: EngineBridgeHandlers): void {
   engineMessenger.start(handlers);
-  engineMessenger.sendEngineReady();
+  // ENGINE_READY is sent only once the Phaser game fires its own "ready" event
+  // (see main.ts game.events.once("ready", ...)).  Sending it here — before the
+  // game object even exists — produces a premature handshake that the dashboard
+  // immediately invalidates via useBridgeSync's onLoad → initSync() reset,
+  // leaving messenger.engineReady === false until the second ENGINE_READY
+  // arrives.  That race is the source of the "sendEngineControl dropped" bug.
 }
 
 export function setBridgeTemplateId(id: GameTemplateId): void {

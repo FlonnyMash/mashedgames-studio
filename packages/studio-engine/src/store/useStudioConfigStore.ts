@@ -1,6 +1,9 @@
 import {
+  applyTemplateConfigDefaults,
   DEFAULT_GAME_CONFIG,
   exportClientPayload,
+  GameConfigSchema,
+  normalizeTemplateId,
   patchFlatConfig,
   type GameConfig,
 } from "@mashedgames/shared";
@@ -19,34 +22,55 @@ export interface StudioConfigStore {
   hydrateConfig: (config: GameConfig) => void;
 }
 
+function toStudioConfig(config: GameConfig): GameConfig {
+  const parsed = GameConfigSchema.safeParse(
+    applyTemplateConfigDefaults({ ...config, appMode: "studio" }),
+  );
+  return parsed.success ? parsed.data : applyTemplateConfigDefaults(config);
+}
+
 export const useStudioConfigStore = create<StudioConfigStore>((set, get) => ({
-  config: { ...DEFAULT_GAME_CONFIG, appMode: "studio" },
-  selectedTemplateId: DEFAULT_GAME_CONFIG.activeTemplateId,
+  config: toStudioConfig(DEFAULT_GAME_CONFIG),
+  selectedTemplateId: normalizeTemplateId(DEFAULT_GAME_CONFIG.activeTemplateId),
 
   setSelectedTemplateId: (id) => {
+    const normalized = normalizeTemplateId(id);
     set({
-      selectedTemplateId: id,
-      config: { ...get().config, activeTemplateId: id },
+      selectedTemplateId: normalized,
+      config: toStudioConfig({
+        ...get().config,
+        activeTemplateId: normalized,
+      }),
     });
   },
 
   patchConfig: (key, value) => {
-    set({ config: patchFlatConfig(get().config, key, value) });
+    const merged = patchFlatConfig(get().config, key, value);
+    const parsed = GameConfigSchema.safeParse(merged);
+    if (!parsed.success) {
+      return;
+    }
+    set({ config: toStudioConfig(parsed.data) });
   },
 
   resetConfig: () => {
+    const templateId = get().selectedTemplateId;
     set({
-      config: { ...DEFAULT_GAME_CONFIG, appMode: "studio" },
-      selectedTemplateId: DEFAULT_GAME_CONFIG.activeTemplateId,
+      config: toStudioConfig({
+        ...DEFAULT_GAME_CONFIG,
+        activeTemplateId: templateId,
+      }),
+      selectedTemplateId: templateId,
     });
   },
 
   exportConfig: () => exportClientPayload(get().config),
 
   hydrateConfig: (config) => {
+    const next = toStudioConfig(config);
     set({
-      config: { ...config, appMode: "studio" },
-      selectedTemplateId: config.activeTemplateId,
+      config: next,
+      selectedTemplateId: next.activeTemplateId,
     });
   },
 }));

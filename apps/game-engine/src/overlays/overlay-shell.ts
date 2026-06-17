@@ -1,15 +1,14 @@
-import type { GameConfig } from "@mashedgames/shared";
-import { resolveTextureUrl } from "../bridge/asset-loader.ts";
-import { getRuntimeAssets } from "../bridge/runtime-assets.ts";
+import {
+  GAME_LIFECYCLE_EVENT_TYPE,
+  type GameConfig,
+  type GameLifecycleEventPayload,
+} from "@mashedgames/shared";
+import type { Game } from "phaser";
+import { engineMessenger } from "../bridge/messenger.ts";
 
-const OVERLAY_START_EVENT = "overlay:game-start";
+const LIFECYCLE_BRIDGE_KEY = "lifecycleBridgeBound";
 
 let overlayRoot: HTMLElement | null = null;
-let titleEl: HTMLHeadingElement | null = null;
-let subtitleEl: HTMLParagraphElement | null = null;
-let ctaButton: HTMLButtonElement | null = null;
-let logoEl: HTMLImageElement | null = null;
-let startScreenEl: HTMLElement | null = null;
 
 function getOverlayRoot(): HTMLElement {
   if (!overlayRoot) {
@@ -21,89 +20,74 @@ function getOverlayRoot(): HTMLElement {
   return overlayRoot;
 }
 
-function mountOverlayShell(): void {
+export function initOverlayShell(): void {
   const root = getOverlayRoot();
   if (root.dataset.mounted === "true") {
     return;
   }
-
   root.dataset.mounted = "true";
-  root.className =
-    "pointer-events-none absolute inset-0 z-10 flex items-center justify-center";
-
-  startScreenEl = document.createElement("div");
-  startScreenEl.className =
-    "pointer-events-auto flex max-w-md flex-col items-center gap-4 rounded-2xl border border-white/10 bg-slate-950/80 p-8 text-center shadow-2xl backdrop-blur";
-
-  logoEl = document.createElement("img");
-  logoEl.alt = "Brand logo";
-  logoEl.className = "max-h-16 w-auto object-contain";
-
-  titleEl = document.createElement("h1");
-  titleEl.className = "text-2xl font-semibold text-white";
-
-  subtitleEl = document.createElement("p");
-  subtitleEl.className = "text-sm text-slate-300";
-
-  ctaButton = document.createElement("button");
-  ctaButton.type = "button";
-  ctaButton.className =
-    "rounded-full px-6 py-2 text-sm font-semibold text-white transition hover:opacity-90";
-  ctaButton.addEventListener("click", () => {
-    window.dispatchEvent(new CustomEvent(OVERLAY_START_EVENT));
-    if (startScreenEl) {
-      startScreenEl.classList.add("hidden");
-    }
-  });
-
-  startScreenEl.append(logoEl, titleEl, subtitleEl, ctaButton);
-  root.append(startScreenEl);
-}
-
-export function initOverlayShell(): void {
-  mountOverlayShell();
+  root.className = "pointer-events-none absolute inset-0 z-10";
 }
 
 export function applyOverlayConfig(config: GameConfig): void {
-  mountOverlayShell();
+  initOverlayShell();
   const root = getOverlayRoot();
-
   root.style.setProperty("--theme-color", config.themeColor);
   document.documentElement.style.setProperty("--theme-color", config.themeColor);
-
-  if (titleEl) {
-    titleEl.textContent = config.startScreenTitle;
-  }
-  if (subtitleEl) {
-    subtitleEl.textContent = config.startScreenSubtitle ?? "";
-    subtitleEl.hidden = !config.startScreenSubtitle;
-  }
-  if (ctaButton) {
-    ctaButton.textContent = config.ctaLabel;
-    ctaButton.style.backgroundColor = config.themeColor;
-  }
-
-  if (logoEl) {
-    const logoUrl = config.logoUrl?.trim() ?? "";
-    if (logoUrl) {
-      logoEl.src = resolveTextureUrl(logoUrl, {
-        projectId: config.projectId,
-        runtimeAssets: getRuntimeAssets(),
-      });
-      logoEl.hidden = !logoEl.src;
-    } else {
-      logoEl.removeAttribute("src");
-      logoEl.hidden = true;
-    }
-  }
 }
 
-export function onOverlayGameStart(listener: () => void): () => void {
-  const handler = () => listener();
-  window.addEventListener(OVERLAY_START_EVENT, handler);
-  return () => window.removeEventListener(OVERLAY_START_EVENT, handler);
+function forwardLifecycleEvent(payload: GameLifecycleEventPayload): void {
+  engineMessenger.sendGameLifecycleEvent(payload);
 }
 
-export function showStartScreen(): void {
-  startScreenEl?.classList.remove("hidden");
+/**
+ * Forwards template scene lifecycle events to the dashboard via GAME_LIFECYCLE_EVENT.
+ * Templates emit on `game.events` (see CatchGameScene.emitLifecycle).
+ */
+export function bindSceneLifecycleBridge(game: Game): void {
+  if (game.registry.get(LIFECYCLE_BRIDGE_KEY)) {
+    game.events.emit("lifecycle-bridge-ready");
+    return;
+  }
+  game.registry.set(LIFECYCLE_BRIDGE_KEY, true);
+
+  game.events.on("game-ready", (data: { timestamp?: number }) => {
+    forwardLifecycleEvent({
+      event: GAME_LIFECYCLE_EVENT_TYPE.ON_GAME_READY,
+      timestamp: data?.timestamp ?? Date.now(),
+    });
+  });
+
+  game.events.on("game-start", (data: { timestamp?: number }) => {
+    forwardLifecycleEvent({
+      event: GAME_LIFECYCLE_EVENT_TYPE.ON_GAME_START,
+      timestamp: data?.timestamp ?? Date.now(),
+    });
+  });
+
+  game.events.on("score-update", (data: { score: number; delta?: number }) => {
+    forwardLifecycleEvent({
+      event: GAME_LIFECYCLE_EVENT_TYPE.ON_SCORE_UPDATE,
+      score: data.score,
+      delta: data.delta,
+    });
+  });
+
+  game.events.on("timer-update", (data: { remaining: number; elapsed: number }) => {
+    forwardLifecycleEvent({
+      event: GAME_LIFECYCLE_EVENT_TYPE.ON_TIMER_UPDATE,
+      remaining: data.remaining,
+      elapsed: data.elapsed,
+    });
+  });
+
+  game.events.on("game-over", (data: { finalScore: number; reason?: string }) => {
+    forwardLifecycleEvent({
+      event: GAME_LIFECYCLE_EVENT_TYPE.ON_GAME_OVER,
+      finalScore: data.finalScore,
+      reason: data.reason,
+    });
+  });
+
+  game.events.emit("lifecycle-bridge-ready");
 }

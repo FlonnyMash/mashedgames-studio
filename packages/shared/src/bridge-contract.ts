@@ -5,6 +5,7 @@ import {
   SetRuntimeAssetsPayloadSchema,
 } from "./asset-bridge";
 import { AppModeSchema, GameConfigSchema, type GameConfig } from "./flat-game-config";
+import { GameLifecycleEventPayloadSchema } from "./game-events";
 
 export const BRIDGE_MESSAGE_TYPE = {
   UPDATE_CONFIG: "UPDATE_CONFIG",
@@ -16,6 +17,10 @@ export const BRIDGE_MESSAGE_TYPE = {
   SET_RUNTIME_ASSETS: "SET_RUNTIME_ASSETS",
   GAME_EVENT: "GAME_EVENT",
   CONFIG_UPDATED: "CONFIG_UPDATED",
+  /** Engine → Dashboard. Typed Phaser lifecycle telemetry (score, game over, etc.) */
+  GAME_LIFECYCLE_EVENT: "GAME_LIFECYCLE_EVENT",
+  /** Dashboard → Engine. Imperative game-control commands (start, pause, reset). */
+  ENGINE_CONTROL: "ENGINE_CONTROL",
 } as const;
 
 export type BridgeMessageType =
@@ -96,6 +101,34 @@ export const ConfigUpdatedMessageSchema = z.object({
   payload: ConfigSyncPayloadSchema,
 });
 
+/**
+ * Engine → Dashboard.
+ * Carries a typed Phaser lifecycle event payload validated against
+ * GameLifecycleEventPayloadSchema. The dashboard overlay uses this to
+ * render UI modules declared in the active TemplateSchema.supportsUI.
+ */
+export const GameLifecycleEventMessageSchema = z.object({
+  type: z.literal(BRIDGE_MESSAGE_TYPE.GAME_LIFECYCLE_EVENT),
+  payload: GameLifecycleEventPayloadSchema,
+});
+
+/**
+ * Dashboard → Engine.
+ * Imperative control commands sent from the HTML overlay layer to the Phaser
+ * game scene. The engine emits a `CustomEvent("engine:control", { detail })` on
+ * `window` and a Phaser `game.events.emit("bridge:control", action)` so scenes
+ * can react without tight coupling.
+ */
+export const EngineControlActionSchema = z.enum(["START_GAME", "PAUSE_GAME", "RESET_GAME"]);
+export type EngineControlAction = z.infer<typeof EngineControlActionSchema>;
+
+export const EngineControlMessageSchema = z.object({
+  type: z.literal(BRIDGE_MESSAGE_TYPE.ENGINE_CONTROL),
+  payload: z.object({
+    action: EngineControlActionSchema,
+  }),
+});
+
 export const BridgeMessageSchema = z.discriminatedUnion("type", [
   UpdateConfigMessageSchema,
   EngineReadyMessageSchema,
@@ -106,6 +139,8 @@ export const BridgeMessageSchema = z.discriminatedUnion("type", [
   AssetReadyMessageSchema,
   SetRuntimeAssetsMessageSchema,
   ConfigUpdatedMessageSchema,
+  GameLifecycleEventMessageSchema,
+  EngineControlMessageSchema,
 ]);
 
 export type UpdateConfigMessage = z.infer<typeof UpdateConfigMessageSchema>;
@@ -123,6 +158,10 @@ export type SetRuntimeAssetsMessage = z.infer<
 >;
 export type ConfigSyncPayload = z.infer<typeof ConfigSyncPayloadSchema>;
 export type ConfigUpdatedMessage = z.infer<typeof ConfigUpdatedMessageSchema>;
+export type GameLifecycleEventMessage = z.infer<
+  typeof GameLifecycleEventMessageSchema
+>;
+export type EngineControlMessage = z.infer<typeof EngineControlMessageSchema>;
 export type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 
 export function parseBridgeMessage(data: unknown): BridgeMessage | null {
@@ -164,6 +203,18 @@ export function isConfigUpdatedMessage(
   message: BridgeMessage,
 ): message is ConfigUpdatedMessage {
   return message.type === BRIDGE_MESSAGE_TYPE.CONFIG_UPDATED;
+}
+
+export function isGameLifecycleEventMessage(
+  message: BridgeMessage,
+): message is GameLifecycleEventMessage {
+  return message.type === BRIDGE_MESSAGE_TYPE.GAME_LIFECYCLE_EVENT;
+}
+
+export function isEngineControlMessage(
+  message: BridgeMessage,
+): message is EngineControlMessage {
+  return message.type === BRIDGE_MESSAGE_TYPE.ENGINE_CONTROL;
 }
 
 export type { GameConfig };

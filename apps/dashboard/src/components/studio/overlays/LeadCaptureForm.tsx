@@ -1,7 +1,9 @@
 "use client";
 
+import { PostGameScreen } from "./PostGameScreen";
 import type { TemplateOverlayProps } from "./types";
 
-export function LeadCaptureForm(_props: TemplateOverlayProps) {
-  return null;
+/** @deprecated Use PostGameScreen — kept for OverlayRegistry compatibility. */
+export function LeadCaptureForm(props: TemplateOverlayProps) {
+  return <PostGameScreen {...props} />;
 }

@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 /**
- * Promotes a template from draft → published by updating its manifest.json in-place.
- * No files are copied or moved; the status field is the single source of truth.
+ * Promotes a template to published by bumping its version in manifest.ts.
+ * Reads the current version via regex, increments the patch segment, and
+ * writes the updated version string back into the manifest.ts source.
  *
  * Usage: pnpm publish-template <template-id>
- * Example: pnpm publish-template my-game-template
+ * Example: pnpm publish-template catch-game
  */
-import {
-  isTemplateManifest,
-  type TemplateManifest,
-} from "@mashedgames/shared";
-import { spawnSync } from "node:child_process";
 import {
   existsSync,
   readFileSync,
@@ -19,35 +15,42 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  nextVersionForPublish,
-  writePublishedSystemJson,
-} from "../src/lib/template-publish";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const dashboardRoot = path.resolve(scriptDir, "..");
-const templatesRoot = path.resolve(
-  dashboardRoot,
-  "../game-engine/src/templates",
-);
+const monorepoRoot = path.resolve(dashboardRoot, "../..");
+const templatesRoot = path.resolve(monorepoRoot, "packages/templates/src");
 
-function readManifest(dir: string): TemplateManifest {
-  const manifestPath = path.join(dir, "manifest.json");
-  if (!existsSync(manifestPath)) {
-    throw new Error(`Missing manifest.json in ${dir}`);
-  }
+// ---------------------------------------------------------------------------
+// Version helpers
+// ---------------------------------------------------------------------------
 
-  const raw: unknown = JSON.parse(readFileSync(manifestPath, "utf8"));
-  if (!isTemplateManifest(raw)) {
-    throw new Error(`Invalid manifest.json in ${dir}`);
-  }
-  return raw;
+function bumpPatchVersion(version: string): string {
+  const parts = version.split(".").map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return "1.0.1";
+  return `${parts[0]}.${parts[1]}.${(parts[2] ?? 0) + 1}`;
 }
 
-function writeManifest(dir: string, manifest: TemplateManifest): void {
-  const manifestPath = path.join(dir, "manifest.json");
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+function extractVersion(source: string): string {
+  const match = /version:\s*["']([^"']+)["']/.exec(source);
+  return match?.[1] ?? "1.0.0";
 }
+
+function extractDisplayName(source: string): string {
+  const match = /displayName:\s*["']([^"']+)["']/.exec(source);
+  return match?.[1] ?? "(unknown)";
+}
+
+function replaceVersion(source: string, newVersion: string): string {
+  return source.replace(
+    /(version:\s*["'])([^"']+)(["'])/,
+    `$1${newVersion}$3`,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 function main(): void {
   const templateId = process.argv[2];
@@ -58,37 +61,30 @@ function main(): void {
 
   const templateDir = path.join(templatesRoot, templateId);
   if (!existsSync(templateDir) || !statSync(templateDir).isDirectory()) {
-    console.error(`Template not found: ${templateDir}`);
+    console.error(
+      `Template not found: ${templateDir}\n` +
+        `Ensure the template exists under packages/templates/src/${templateId}/`,
+    );
     process.exit(1);
   }
 
-  const currentManifest = readManifest(templateDir);
-
-  const nextVersion = nextVersionForPublish(currentManifest);
-
-  const publishedManifest: TemplateManifest = {
-    ...currentManifest,
-    version: nextVersion,
-    status: "published",
-  };
-
-  writeManifest(templateDir, publishedManifest);
-  writePublishedSystemJson(templateDir, publishedManifest);
-
-  const syncResult = spawnSync(
-    "node",
-    ["--import", "tsx", "scripts/sync-manifest-registry.ts"],
-    {
-      cwd: path.join(dashboardRoot, "../game-engine"),
-      stdio: "inherit",
-      shell: process.platform === "win32",
-    },
-  );
-  if (syncResult.status !== 0) {
-    process.exit(syncResult.status ?? 1);
+  const manifestPath = path.join(templateDir, "manifest.ts");
+  if (!existsSync(manifestPath)) {
+    console.error(`Missing manifest.ts in ${templateDir}`);
+    process.exit(1);
   }
 
-  console.log(`Published "${templateId}" at v${nextVersion} (status updated in-place)`);
+  const source = readFileSync(manifestPath, "utf8");
+  const currentVersion = extractVersion(source);
+  const displayName = extractDisplayName(source);
+  const nextVersion = bumpPatchVersion(currentVersion);
+
+  const updated = replaceVersion(source, nextVersion);
+  writeFileSync(manifestPath, updated, "utf8");
+
+  console.log(
+    `Published "${displayName}" (${templateId}): v${currentVersion} → v${nextVersion}`,
+  );
 }
 
 main();

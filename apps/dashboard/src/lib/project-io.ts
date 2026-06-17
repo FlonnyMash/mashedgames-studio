@@ -1,4 +1,5 @@
 import {
+  BASELINE_TEMPLATE_ID,
   buildInitialClientPayload,
   buildProjectConfigFromClient,
   ClientProjectPayloadSchema,
@@ -6,11 +7,16 @@ import {
   GameProjectManifestSchema,
   ParentLockSnapshotSchema,
   PROJECT_ID_PATTERN,
+  SaveModeSchema,
   slugifyProjectId,
+  normalizeTemplateId,
+  isLegacyTemplateId,
   type ClientProjectPayload,
   type GameConfig,
   type GameTemplateId,
   type ParentLockSnapshot,
+  type SaveMode,
+  textureKeyForConfigField,
 } from "@mashedgames/shared";
 import {
   migrateClientBrandingAssets,
@@ -56,12 +62,18 @@ function buildParentLockSnapshot(
   };
 }
 
-export async function listProjectIds(): Promise<string[]> {
+export async function listProjectIds(
+  filters?: { mode?: SaveMode; templateId?: string },
+): Promise<string[]> {
   ensureWorkspaceExists();
   const projectsRoot = getProjectsRoot();
   if (!existsSync(projectsRoot)) {
     return [];
   }
+  const normalizedFilterTemplateId =
+    filters?.templateId !== undefined
+      ? normalizeTemplateId(filters.templateId)
+      : undefined;
   const entries = await readdir(projectsRoot, { withFileTypes: true });
   const ids: string[] = [];
   for (const entry of entries) {
@@ -73,9 +85,33 @@ export async function listProjectIds(): Promise<string[]> {
       entry.name,
       PROJECT_FILES.manifest,
     );
-    if (existsSync(manifestPath)) {
-      ids.push(entry.name);
+    if (!existsSync(manifestPath)) {
+      continue;
     }
+    if (filters?.mode !== undefined || filters?.templateId !== undefined) {
+      try {
+        const raw = JSON.parse(await readFile(manifestPath, "utf8"));
+        const parsed = GameProjectManifestSchema.safeParse(raw);
+        if (!parsed.success) {
+          continue;
+        }
+        if (filters.mode !== undefined && parsed.data.mode !== filters.mode) {
+          continue;
+        }
+        const normalizedParentTemplateId = normalizeTemplateId(
+          parsed.data.parentTemplateId,
+        );
+        if (
+          normalizedFilterTemplateId !== undefined &&
+          normalizedParentTemplateId !== normalizedFilterTemplateId
+        ) {
+          continue;
+        }
+      } catch {
+        continue;
+      }
+    }
+    ids.push(entry.name);
   }
   return ids.sort();
 }
@@ -165,7 +201,12 @@ export async function createProject(input: {
   }>
 > {
   ensureWorkspaceExists();
-  const parentTemplateId = input.parentTemplateId;
+  const parentTemplateId = normalizeTemplateId(input.parentTemplateId);
+  if (isLegacyTemplateId(input.parentTemplateId)) {
+    console.warn(
+      `[project-io] Migrating legacy template "${input.parentTemplateId}" -> "${BASELINE_TEMPLATE_ID}" for project creation`,
+    );
+  }
   if (!isParentTemplateInLibrary(parentTemplateId)) {
     return {
       ok: false,
@@ -225,6 +266,7 @@ export async function createProject(input: {
     parentSchemaVersion: parentConfig.schemaVersion,
     lastParentAckAt: now,
     createdAt: now,
+    mode: "configurator" as SaveMode,
   };
 
   const client = buildInitialClientPayload(
@@ -269,6 +311,18 @@ export async function loadProject(projectId: string): Promise<
       return { ok: false, error: "Invalid project.json.", status: 500 };
     }
     const manifest = manifestParsed.data;
+    const resolvedParentTemplateId = normalizeTemplateId(
+      manifest.parentTemplateId,
+    );
+    if (resolvedParentTemplateId !== manifest.parentTemplateId) {
+      console.warn(
+        `[project-io] Project "${projectId}" uses legacy template "${manifest.parentTemplateId}", falling back to "${resolvedParentTemplateId}"`,
+      );
+    }
+    const normalizedManifest = {
+      ...manifest,
+      parentTemplateId: resolvedParentTemplateId,
+    };
 
     const clientRaw = JSON.parse(
       await readFile(path.join(projectDir, PROJECT_FILES.client), "utf8"),
@@ -279,7 +333,10 @@ export async function loadProject(projectId: string): Promise<
     }
     const client = clientParsed.data;
 
-    const config = buildProjectConfigFromClient(client, manifest.parentTemplateId);
+    const config = buildProjectConfigFromClient(
+      client,
+      normalizedManifest.parentTemplateId,
+    );
 
     const lockPath = path.join(projectDir, PROJECT_FILES.parentLock);
     let parentLock: ParentLockSnapshot | null = null;
@@ -294,7 +351,7 @@ export async function loadProject(projectId: string): Promise<
     return {
       ok: true,
       data: {
-        manifest,
+        manifest: normalizedManifest,
         client,
         config,
         parentLock,
@@ -322,14 +379,6 @@ export async function importProjectAsset(
   }>
 > {
   try {
-    if (!isWorkspaceDesktop()) {
-      return {
-        ok: false,
-        error: "OS asset import is only available in the desktop app.",
-        status: 400,
-      };
-    }
-
     ensureWorkspaceExists();
     const projectDir = resolveProjectDir(projectId);
     if (!existsSync(projectDir)) {
@@ -379,7 +428,7 @@ export async function importProjectAsset(
       data: {
         relativePath,
         absolutePath,
-        textureKey: targetPath === "logoUrl" ? "logo" : null,
+        textureKey: textureKeyForConfigField(targetPath),
         client,
         manifest,
       },

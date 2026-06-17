@@ -9,8 +9,9 @@ import type {
   ParentDriftReport,
 } from "@mashedgames/shared";
 import { Loader2 } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  pushConfigAssetsToPreview,
   pushRuntimeAssetsToPreview,
   usePreviewBridgeStore,
 } from "@/lib/preview-bridge-store";
@@ -25,6 +26,7 @@ export function ConfiguratorProjectGate({
   detached?: boolean;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const projectParam = searchParams.get("project");
   const activeSessionProjectId = useWorkspaceSessionStore(
@@ -55,9 +57,13 @@ export function ConfiguratorProjectGate({
       return;
     }
 
-    useWorkspaceSessionStore
-      .getState()
-      .setActiveConfiguratorProject(effectiveProjectId);
+    // Only bind session while on the workspace route — avoids undoing an exit
+    // to /configurator/projects while the old ?project= query is still in flight.
+    if (pathname === "/configurator") {
+      useWorkspaceSessionStore
+        .getState()
+        .setActiveConfiguratorProject(effectiveProjectId);
+    }
 
     if (projectId === effectiveProjectId) {
       setLoading(false);
@@ -98,6 +104,7 @@ export function ConfiguratorProjectGate({
           .getState()
           .setRuntimeAssets(data.runtimeAssets ?? data.manifest.runtimeAssets ?? {});
         pushRuntimeAssetsToPreview();
+        pushConfigAssetsToPreview(data.client);
 
         const driftResponse = await fetch(
           `/api/projects/${effectiveProjectId}/parent-drift`,
@@ -134,6 +141,7 @@ export function ConfiguratorProjectGate({
     activeSessionProjectId,
     detached,
     effectiveProjectId,
+    pathname,
     projectId,
     projectParam,
     router,
@@ -158,7 +166,11 @@ export function ConfiguratorProjectGate({
         <p className="text-sm text-red-600">{error}</p>
         <button
           type="button"
-          onClick={() => router.push("/configurator/projects")}
+          onClick={() => {
+            useWorkspaceSessionStore.getState().clearConfiguratorSession();
+            useConfiguratorStore.getState().clearProject();
+            router.replace("/configurator/projects");
+          }}
           className="rounded-lg border border-zinc-200 px-4 py-2 text-sm hover:bg-zinc-50"
         >
           Back to projects

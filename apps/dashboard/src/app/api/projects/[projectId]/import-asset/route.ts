@@ -1,5 +1,4 @@
 import { importProjectAsset } from "@/lib/project-io";
-import { isWorkspaceDesktop } from "@/lib/runtime-env";
 import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
@@ -10,13 +9,6 @@ const MAX_TEXTURE_BYTES = 4 * 1024 * 1024;
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const { projectId } = await context.params;
-
-  if (!isWorkspaceDesktop()) {
-    return Response.json(
-      { ok: false, error: "OS asset import is only available in the desktop app." },
-      { status: 400 },
-    );
-  }
 
   try {
     const formData = await request.formData();

@@ -1,0 +1,27 @@
+{
+  "name": "@mashedgames/templates",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*/manifest.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "watch": "tsc --watch --noEmit --preserveWatchOutput",
+    "typecheck": "tsc --noEmit"
+  },
+  "types": "./src/index.ts",
+  "license": "ISC",
+  "dependencies": {
+    "@mashedgames/shared": "workspace:*"
+  },
+  "peerDependencies": {
+    "phaser": ">=4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.42",
+    "phaser": "^4.1.0",
+    "typescript": "^5"
+  }
+}
