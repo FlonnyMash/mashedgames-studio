@@ -6,16 +6,28 @@
   "scripts": {
     "dev": "node scripts/run-dev.mjs",
     "dev:studio": "pnpm exec cross-env NEXT_PUBLIC_ENABLE_STUDIO_MODE=true pnpm dev",
-    "dev:client": "pnpm exec cross-env NEXT_PUBLIC_ENABLE_STUDIO_MODE=false pnpm dev",
-    "dev:desktop": "pnpm --filter desktop dev",
-    "dev:desktop:studio": "pnpm exec cross-env NEXT_PUBLIC_ENABLE_STUDIO_MODE=true pnpm run build:engine && pnpm exec cross-env NEXT_PUBLIC_ENABLE_STUDIO_MODE=true pnpm --filter desktop dev",
+    "dev:client": "pnpm exec cross-env NEXT_PUBLIC_ENABLE_STUDIO_MODE=false NEXT_PUBLIC_APP_MODE=configurator pnpm dev",
+    "dev:phase1": "concurrently --kill-others-on-fail --names PKG-SHARED,PKG-CONFIG,PKG-STUDIO --prefix-colors cyan,magenta,blue \"pnpm --config.verifyDepsBeforeRun=false --filter @mashedgames/shared watch\" \"pnpm --config.verifyDepsBeforeRun=false --filter @mashedgames/configurator-engine watch\" \"pnpm --config.verifyDepsBeforeRun=false --filter @mashedgames/studio-engine watch\"",
+    "dev:phase2": "concurrently --kill-others-on-fail --names DASH,ENGINE --prefix-colors green,yellow \"pnpm --config.verifyDepsBeforeRun=false --filter dashboard dev\" \"pnpm --config.verifyDepsBeforeRun=false --filter game-engine dev\"",
+    "dev:phase3": "node scripts/dev-phase3.mjs",
+    "dev:desktop": "node scripts/dev-desktop.mjs",
+    "dev:desktop:studio": "pnpm exec cross-env NEXT_PUBLIC_ENABLE_STUDIO_MODE=true pnpm dev",
+    "dev:desktop:standalone": "pnpm --filter desktop dev",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build:engine": "pnpm --filter game-engine build && node scripts/copy-engine-to-dashboard.mjs",
-    "build:dashboard": "pnpm --filter dashboard build",
-    "build:desktop": "pnpm build:engine && pnpm --filter dashboard build:desktop && pnpm --filter desktop build",
+    "build": "pnpm run build:pipeline",
+    "build:clean": "rimraf \"apps/dashboard/.next\" \"apps/dashboard/out\" \"apps/game-engine/dist\" \"apps/desktop/dist\" \"apps/desktop/_staging\" \"apps/desktop/_staging_probe\" \".turbo\"",
+    "build:packages": "pnpm --config.verifyDepsBeforeRun=false --filter @mashedgames/shared build && pnpm --config.verifyDepsBeforeRun=false --filter @mashedgames/configurator-engine build && pnpm --config.verifyDepsBeforeRun=false --filter @mashedgames/studio-engine build",
+    "build:dashboard": "pnpm --config.verifyDepsBeforeRun=false --filter dashboard build:desktop",
+    "build:dashboard:standalone": "pnpm --config.verifyDepsBeforeRun=false --filter dashboard build:desktop",
+    "build:game-engine": "pnpm --config.verifyDepsBeforeRun=false --filter game-engine build",
+    "build:assets:sync": "node scripts/copy-engine-to-dashboard.mjs && pnpm --config.verifyDepsBeforeRun=false --filter dashboard sync:standalone-assets",
+    "build:engine": "pnpm run build:game-engine && node scripts/copy-engine-to-dashboard.mjs",
+    "build:desktop:package": "pnpm --config.verifyDepsBeforeRun=false --filter desktop build:package",
+    "build:pipeline": "pnpm run build:clean && pnpm run build:packages && pnpm run build:dashboard:standalone && pnpm run build:game-engine && pnpm run build:assets:sync && pnpm run build:desktop:package",
+    "build:desktop": "pnpm run build:pipeline",
     "build:release:client": "node scripts/build-release.mjs client",
     "build:release:studio": "node scripts/build-release.mjs studio",
-    "sync:brand": "pnpm --filter desktop sync-branding"
+    "sync:brand": "pnpm --config.verifyDepsBeforeRun=false --filter desktop sync-branding"
   },
   "keywords": [],
   "author": "",
@@ -30,6 +42,10 @@
   },
   "type": "module",
   "devDependencies": {
-    "cross-env": "^10.1.0"
+    "@electron/rebuild": "^4.0.4",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "rimraf": "^6.1.0",
+    "wait-on": "^8.0.5"
   }
 }
