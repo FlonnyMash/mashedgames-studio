@@ -1,10 +1,12 @@
 "use client";
 
 import { useConfigStore } from "@/store/useConfigStore";
+import { useGameLifecycleStore } from "@/store/useGameLifecycleStore";
 import type { createDashboardMessenger } from "@/bridge/messenger";
-import { HighscoreTable } from "./HighscoreTable";
-import { LeadCaptureForm } from "./LeadCaptureForm";
+import { GameHud } from "./GameHud";
+import { PostGameScreen } from "./PostGameScreen";
 import { StartScreen } from "./StartScreen";
+import { useEffect } from "react";
 
 type DashboardMessenger = ReturnType<typeof createDashboardMessenger>;
 
@@ -29,11 +31,25 @@ export function OverlayLayer({ messenger }: OverlayLayerProps) {
   const config = useConfigStore((state) => state.config);
   const engineReady = useConfigStore((state) => state.engineReady);
 
+  useEffect(() => {
+    const offLifecycle = messenger.onGameLifecycleEvent((payload) => {
+      useGameLifecycleStore.getState().applyEvent(payload);
+    });
+    return () => {
+      offLifecycle();
+      useGameLifecycleStore.getState().reset();
+    };
+  }, [messenger]);
+
   return (
     <>
+      <GameHud config={config} messenger={messenger} />
       <StartScreen config={config} messenger={messenger} disabled={!engineReady} />
-      <HighscoreTable config={config} messenger={messenger} />
-      <LeadCaptureForm config={config} messenger={messenger} />
+      <PostGameScreen
+        config={config}
+        messenger={messenger}
+        disabled={!engineReady}
+      />
     </>
   );
 }

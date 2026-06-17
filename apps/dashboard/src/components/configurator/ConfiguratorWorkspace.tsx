@@ -8,12 +8,12 @@ import {
   loadFlatConfigViaElectron,
   saveFlatConfigViaElectron,
 } from "@/lib/flat-config-ipc";
+import { applyAssetUploadToPreview } from "@/lib/apply-asset-upload-to-preview";
 import { saveProjectAssetWithFallback } from "@/lib/import-project-asset-client";
 import {
   pushRuntimeAssetsToPreview,
   usePreviewBridgeStore,
 } from "@/lib/preview-bridge-store";
-import { isWorkspaceDesktopClient } from "@/lib/runtime-env";
 import { useConfigStore } from "@/store/useConfigStore";
 import {
   ConfiguratorSidebar,
@@ -93,7 +93,7 @@ export function ConfiguratorWorkspace({
   }, []);
 
   useEffect(() => {
-    if (!projectId || !isWorkspaceDesktopClient()) {
+    if (!projectId) {
       setAssetSaveHandler(null);
       return;
     }
@@ -105,20 +105,17 @@ export function ConfiguratorWorkspace({
         targetPath: input.fieldKey,
       });
 
-      const runtimeAssets =
-        data.manifest?.runtimeAssets ??
-        {
-          ...usePreviewBridgeStore.getState().runtimeAssets,
-          [data.relativePath]: data.absolutePath,
-        };
-
-      usePreviewBridgeStore.getState().setRuntimeAssets(runtimeAssets);
-      pushRuntimeAssetsToPreview();
-
-      const messenger = usePreviewBridgeStore.getState().messenger;
-      if (data.textureKey && messenger) {
-        messenger.sendLoadExternalAsset(data.textureKey, data.absolutePath);
+      if (data.manifest?.runtimeAssets) {
+        usePreviewBridgeStore
+          .getState()
+          .setRuntimeAssets(data.manifest.runtimeAssets);
       }
+
+      applyAssetUploadToPreview({
+        relativePath: data.relativePath,
+        absolutePath: data.absolutePath,
+        textureKey: data.textureKey,
+      });
 
       return data;
     });

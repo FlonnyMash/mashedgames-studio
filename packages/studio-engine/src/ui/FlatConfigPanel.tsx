@@ -9,8 +9,13 @@ import type {
 import {
   fieldsForGroup,
   groupsForMode,
+  resolveAssetPreviewUrl,
   ungroupedFields,
+  type AssetPreviewContext,
 } from "@mashedgames/shared";
+import { ImageFieldInput } from "./ImageFieldInput";
+import { NumberFieldInput } from "./NumberFieldInput";
+import { SliderFieldInput } from "./SliderFieldInput";
 import { StyledTextInput } from "./StyledTextInput";
 
 // ---------------------------------------------------------------------------
@@ -27,6 +32,7 @@ export type FlatConfigPanelProps = {
     file: File,
     field: FlatFieldDefinition,
   ) => void | Promise<void>;
+  assetPreviewContext?: AssetPreviewContext;
 };
 
 // ---------------------------------------------------------------------------
@@ -39,12 +45,14 @@ function FieldControl({
   disabled,
   onFieldChange,
   onImageFile,
+  assetPreviewContext,
 }: {
   field: FlatFieldDefinition;
   config: GameConfig;
   disabled?: boolean;
   onFieldChange: FlatConfigPanelProps["onFieldChange"];
   onImageFile: FlatConfigPanelProps["onImageFile"];
+  assetPreviewContext?: AssetPreviewContext;
 }) {
   const value = config[field.key];
 
@@ -144,45 +152,56 @@ function FieldControl({
     );
   }
 
-  if (field.type === "slider" || field.type === "number") {
+  if (field.type === "number") {
     return (
       <label className="block space-y-1.5">
         <span className="text-xs font-medium text-zinc-700">{field.label}</span>
-        <input
-          type="number"
-          min={field.min}
-          max={field.max}
-          step={field.step}
+        <NumberFieldInput
+          field={field}
+          value={typeof value === "number" ? value : undefined}
           disabled={disabled}
-          value={typeof value === "number" ? value : 0}
-          onChange={(e) =>
-            onFieldChange(field.key, Number(e.target.value) as never)
-          }
-          className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm disabled:opacity-40"
+          onCommit={(next) => onFieldChange(field.key, next as never)}
+        />
+      </label>
+    );
+  }
+
+  if (field.type === "slider") {
+    return (
+      <label className="block space-y-1.5">
+        <span className="text-xs font-medium text-zinc-700">{field.label}</span>
+        <SliderFieldInput
+          field={field}
+          value={typeof value === "number" ? value : undefined}
+          disabled={disabled}
+          onCommit={(next) => onFieldChange(field.key, next as never)}
         />
       </label>
     );
   }
 
   if (field.type === "image") {
+    const stringValue = typeof value === "string" ? value : "";
+    const previewSrc = resolveAssetPreviewUrl(stringValue, assetPreviewContext ?? {});
+
     return (
-      <label className="block space-y-1.5">
-        <span className="text-xs font-medium text-zinc-700">{field.label}</span>
-        <input
-          type="file"
-          accept="image/*"
-          disabled={disabled}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file && onImageFile) void onImageFile(file, field);
-            e.target.value = "";
-          }}
-          className="block w-full text-xs text-zinc-600 disabled:opacity-40"
-        />
-        {typeof value === "string" && value ? (
-          <p className="truncate text-[11px] text-zinc-500">{value}</p>
-        ) : null}
-      </label>
+      <ImageFieldInput
+        label={field.label}
+        value={stringValue || undefined}
+        previewSrc={previewSrc}
+        disabled={disabled || !onImageFile}
+        onFileSelect={(file) => {
+          if (!onImageFile) {
+            return;
+          }
+          return onImageFile(file, field);
+        }}
+        onClear={
+          stringValue
+            ? () => onFieldChange(field.key, "" as never)
+            : undefined
+        }
+      />
     );
   }
 
@@ -246,12 +265,14 @@ function GroupAccordion({
   config,
   onFieldChange,
   onImageFile,
+  assetPreviewContext,
 }: {
   group: GroupDefinition;
   fields: FlatFieldDefinition[];
   config: GameConfig;
   onFieldChange: FlatConfigPanelProps["onFieldChange"];
   onImageFile: FlatConfigPanelProps["onImageFile"];
+  assetPreviewContext?: AssetPreviewContext;
 }) {
   const [open, setOpen] = useState(!group.defaultCollapsed);
 
@@ -316,6 +337,7 @@ function GroupAccordion({
               disabled={!isEnabled}
               onFieldChange={onFieldChange}
               onImageFile={onImageFile}
+              assetPreviewContext={assetPreviewContext}
             />
           ))}
         </div>
@@ -332,9 +354,11 @@ export function FlatConfigPanel({
   config,
   onFieldChange,
   onImageFile,
+  assetPreviewContext,
 }: FlatConfigPanelProps) {
-  const groups = groupsForMode("studio");
-  const loose = ungroupedFields("studio");
+  const templateId = config.activeTemplateId;
+  const groups = groupsForMode("studio", templateId);
+  const loose = ungroupedFields("studio", templateId);
 
   return (
     <div className="space-y-3">
@@ -347,6 +371,7 @@ export function FlatConfigPanel({
               config={config}
               onFieldChange={onFieldChange}
               onImageFile={onImageFile}
+              assetPreviewContext={assetPreviewContext}
             />
           ))}
         </div>
@@ -356,10 +381,11 @@ export function FlatConfigPanel({
         <GroupAccordion
           key={group.id}
           group={group}
-          fields={fieldsForGroup(group.id, "studio")}
+          fields={fieldsForGroup(group.id, "studio", templateId)}
           config={config}
           onFieldChange={onFieldChange}
           onImageFile={onImageFile}
+          assetPreviewContext={assetPreviewContext}
         />
       ))}
     </div>

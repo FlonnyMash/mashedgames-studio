@@ -1,37 +1,89 @@
 "use client";
 
+import { useGameLifecycleStore } from "@/store/useGameLifecycleStore";
 import type { TemplateOverlayProps } from "./types";
+import { overlayTextStyle } from "./overlayTextStyle";
 
-const PLACEHOLDER_SCORES = [
-  { rank: 1, name: "Player 1", score: 9800 },
-  { rank: 2, name: "Player 2", score: 7400 },
-  { rank: 3, name: "Player 3", score: 5100 },
-];
+type LeaderboardEntry = {
+  name: string;
+  score: number;
+  highlight?: boolean;
+};
+
+function buildLeaderboard(currentScore: number): LeaderboardEntry[] {
+  const entries: LeaderboardEntry[] = [
+    { name: "Jordan", score: 140 },
+    { name: "Riley", score: 110 },
+    { name: "You", score: currentScore, highlight: true },
+    { name: "Casey", score: 85 },
+    { name: "Morgan", score: 60 },
+  ];
+
+  return [...entries].sort((a, b) => b.score - a.score).slice(0, 5);
+}
 
 export function HighscoreTable({ config }: TemplateOverlayProps) {
-  if (config.showHighscore === false) return null;
-
+  const score = useGameLifecycleStore((state) => state.score);
+  const title = config.highscoreTitle || "Leaderboard";
+  const subtitle = config.highscoreSubtitle;
   const accentColor = config.themeColor ?? "#6366f1";
+  const entries = buildLeaderboard(score);
 
   return (
-    <div className="pointer-events-auto absolute bottom-4 left-1/2 z-10 w-64 -translate-x-1/2 overflow-hidden rounded-xl border border-white/10 bg-black/70 backdrop-blur-sm">
-      <p
-        className="px-4 py-2 text-center text-[11px] font-semibold uppercase tracking-widest"
-        style={{ color: accentColor }}
+    <section className="w-full">
+      <h3
+        className="text-base font-semibold"
+        style={overlayTextStyle(config, {
+          colorKey: "highscoreTitleColor",
+          boldKey: "highscoreTitleBold",
+          italicKey: "highscoreTitleItalic",
+          underlineKey: "highscoreTitleUnderline",
+          defaultColor: "#ffffff",
+          defaultWeight: "600",
+        })}
       >
-        Highscores
-      </p>
-      <ul className="divide-y divide-white/10">
-        {PLACEHOLDER_SCORES.map(({ rank, name, score }) => (
-          <li key={rank} className="flex items-center justify-between px-4 py-2">
-            <span className="text-xs text-white/50">#{rank}</span>
-            <span className="text-xs font-medium text-white">{name}</span>
-            <span className="text-xs font-semibold" style={{ color: accentColor }}>
-              {score.toLocaleString()}
+        {title}
+      </h3>
+      {subtitle ? (
+        <p
+          className="mt-1 text-xs"
+          style={overlayTextStyle(config, {
+            colorKey: "highscoreSubtitleColor",
+            boldKey: "highscoreSubtitleBold",
+            italicKey: "highscoreSubtitleItalic",
+            underlineKey: "highscoreSubtitleUnderline",
+            defaultColor: "#a1a1aa",
+          })}
+        >
+          {subtitle}
+        </p>
+      ) : null}
+      <ol className="mt-4 space-y-2">
+        {entries.map((entry, index) => (
+          <li
+            key={`${entry.name}-${index}`}
+            className={[
+              "flex items-center justify-between rounded-lg px-3 py-2 text-sm",
+              entry.highlight
+                ? "border border-white/20 bg-white/10"
+                : "bg-zinc-800/80",
+            ].join(" ")}
+          >
+            <span className="flex items-center gap-2 text-white">
+              <span className="w-5 text-xs font-semibold text-zinc-400">
+                {index + 1}
+              </span>
+              {entry.name}
+            </span>
+            <span
+              className="font-semibold tabular-nums"
+              style={{ color: entry.highlight ? accentColor : "#e4e4e7" }}
+            >
+              {entry.score.toLocaleString()}
             </span>
           </li>
         ))}
-      </ul>
-    </div>
+      </ol>
+    </section>
   );
 }

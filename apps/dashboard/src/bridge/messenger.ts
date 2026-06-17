@@ -13,6 +13,7 @@ import {
   isAssetLoadErrorMessage,
   isEngineReadyMessage,
   isGameEventMessage,
+  isGameLifecycleEventMessage,
   isLoadTemplateMessage,
   resolveGameEngineBaseUrl,
   type AppMode,
@@ -22,7 +23,9 @@ import {
   type EngineControlAction,
   type GameConfig,
   type GameEventMessage,
+  type GameLifecycleEventPayload,
   type GameTemplateId,
+  GameLifecycleEventMessageSchema,
   LoadTemplateMessageSchema,
 } from "@mashedgames/shared";
 
@@ -133,6 +136,9 @@ class DashboardMessenger {
   private pendingLoadTemplate: GameTemplateId | null = null;
   private gameEventHandler: ((message: GameEventMessage) => void) | null =
     null;
+  private gameLifecycleEventHandler:
+    | ((payload: GameLifecycleEventPayload) => void)
+    | null = null;
   private assetReadyHandler: ((payload: AssetReadyPayload) => void) | null =
     null;
   private engineReadyHandler:
@@ -223,6 +229,16 @@ class DashboardMessenger {
       return;
     }
 
+    if (isGameLifecycleEventMessage(event.data)) {
+      warnIfInvalid(
+        GameLifecycleEventMessageSchema,
+        event.data,
+        "GAME_LIFECYCLE_EVENT",
+      );
+      this.gameLifecycleEventHandler?.(event.data.payload);
+      return;
+    }
+
     if (isAssetLoadErrorMessage(event.data)) {
       warnIfInvalid(AssetLoadErrorMessageSchema, event.data, "ASSET_LOAD_ERROR");
       this.assetLoadErrorHandler?.(event.data.payload);
@@ -261,6 +277,17 @@ class DashboardMessenger {
     return () => {
       if (this.gameEventHandler === handler) {
         this.gameEventHandler = null;
+      }
+    };
+  }
+
+  onGameLifecycleEvent(
+    handler: (payload: GameLifecycleEventPayload) => void,
+  ): () => void {
+    this.gameLifecycleEventHandler = handler;
+    return () => {
+      if (this.gameLifecycleEventHandler === handler) {
+        this.gameLifecycleEventHandler = null;
       }
     };
   }

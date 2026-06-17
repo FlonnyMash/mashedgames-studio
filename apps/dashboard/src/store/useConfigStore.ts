@@ -2,6 +2,7 @@
 
 import { dashboardMessenger, getBridgePostMessageTargetOrigin } from "@/bridge/messenger";
 import {
+  applyTemplateConfigDefaults,
   BASELINE_TEMPLATE_ID,
   BRIDGE_MESSAGE_TYPE,
   DEFAULT_GAME_CONFIG,
@@ -37,19 +38,21 @@ export interface ConfigStore {
 }
 
 export const useConfigStore = create<ConfigStore>((set, get) => ({
-  config: GameConfigSchema.parse({
-    ...DEFAULT_GAME_CONFIG,
-    activeTemplateId: normalizeTemplateId(DEFAULT_GAME_CONFIG.activeTemplateId),
-  }),
+  config: GameConfigSchema.parse(
+    applyTemplateConfigDefaults({
+      ...DEFAULT_GAME_CONFIG,
+      activeTemplateId: normalizeTemplateId(DEFAULT_GAME_CONFIG.activeTemplateId),
+    }),
+  ),
   selectedTemplateId: normalizeTemplateId(DEFAULT_GAME_CONFIG.activeTemplateId),
   iframeTarget: null,
   engineReady: false,
 
   setConfig: (next) => {
-    const sanitized = {
+    const sanitized = applyTemplateConfigDefaults({
       ...next,
       activeTemplateId: normalizeTemplateId(next.activeTemplateId),
-    };
+    });
     if (isLegacyTemplateId(next.activeTemplateId)) {
       devWarn(
         "Migrating legacy activeTemplateId",
@@ -68,13 +71,13 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
   },
 
   patchConfig: (patch) => {
-    const merged = {
+    const merged = applyTemplateConfigDefaults({
       ...get().config,
       ...patch,
       activeTemplateId: normalizeTemplateId(
         patch.activeTemplateId ?? get().config.activeTemplateId,
       ),
-    };
+    });
     const parsed = GameConfigSchema.safeParse(merged);
     if (!parsed.success) {
       devWarn("Rejected patchConfig payload", parsed.error.flatten());
@@ -87,13 +90,13 @@ export const useConfigStore = create<ConfigStore>((set, get) => ({
   },
 
   patchConfigKey: (key, value) => {
-    const merged = {
+    const merged = applyTemplateConfigDefaults({
       ...get().config,
       [key]:
         key === "activeTemplateId"
           ? normalizeTemplateId(value as GameTemplateId)
           : value,
-    };
+    });
     const parsed = GameConfigSchema.safeParse(merged);
     if (!parsed.success) {
       devWarn("Rejected patchConfigKey", parsed.error.flatten());

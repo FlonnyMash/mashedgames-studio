@@ -8,12 +8,14 @@ import Phaser from "phaser";
 import type { Game as PhaserGame } from "phaser";
 import { getStudioAssetUrl, withCacheBust } from "./asset-loader.ts";
 import { getParentTargetOrigin } from "./dashboard-origin.ts";
-import { MAIN_SCENE_KEY } from "../game/scenes/MainScene.ts";
 
 function findLoadableScene(game: PhaserGame): Phaser.Scene | null {
-  const preferred = game.scene.getScene(MAIN_SCENE_KEY);
-  if (preferred?.load) return preferred;
-  return game.scene.scenes.find((scene) => Boolean(scene.load)) ?? null;
+  const scenes = game.scene.scenes;
+  const active = scenes.find((scene) => scene.sys.isActive());
+  if (active?.load) {
+    return active;
+  }
+  return scenes.find((scene) => Boolean(scene.load)) ?? null;
 }
 
 function resolveExternalAssetUrl(

@@ -3,11 +3,13 @@ import {
   BridgeMessageSchema,
   ConfigSyncPayloadSchema,
   GameConfigSchema,
+  GameLifecycleEventPayloadSchema,
   LoadExternalAssetPayloadSchema,
   SetRuntimeAssetsPayloadSchema,
   type AssetLoadErrorPayload,
   type EngineControlAction,
   type GameConfig,
+  type GameLifecycleEventPayload,
   type GameTemplateId,
 } from "@mashedgames/shared";
 import { loadExternalAsset } from "./external-asset-loader.ts";
@@ -77,6 +79,23 @@ export class EngineMessenger {
       {
         type: BRIDGE_MESSAGE_TYPE.ASSET_LOAD_ERROR,
         payload,
+      },
+      getParentTargetOrigin(),
+    );
+  }
+
+  sendGameLifecycleEvent(payload: GameLifecycleEventPayload): void {
+    if (window.parent === window) return;
+
+    const parsed = GameLifecycleEventPayloadSchema.safeParse(payload);
+    if (!parsed.success) {
+      return;
+    }
+
+    window.parent.postMessage(
+      {
+        type: BRIDGE_MESSAGE_TYPE.GAME_LIFECYCLE_EVENT,
+        payload: parsed.data,
       },
       getParentTargetOrigin(),
     );
@@ -180,6 +199,9 @@ export class EngineMessenger {
     // Canonical local trigger consumed by main.ts.
     if (action === "START_GAME") {
       window.dispatchEvent(new CustomEvent("GAME_START"));
+      // Back-compat for older template bundles that still listen for the
+      // legacy ENGINE_START_GAME DOM event name.
+      window.dispatchEvent(new CustomEvent("ENGINE_START_GAME"));
     }
 
     // Also route through the Phaser game event bus so scenes can listen with

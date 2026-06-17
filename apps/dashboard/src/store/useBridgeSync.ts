@@ -1,9 +1,12 @@
 "use client";
 
-import { pushRuntimeAssetsToPreview } from "@/lib/preview-bridge-store";
+import {
+  pushConfigAssetsToPreview,
+  pushRuntimeAssetsToPreview,
+} from "@/lib/preview-bridge-store";
 import { flushConfigToIframe, useConfigStore } from "@/store/useConfigStore";
 import { useTemplateBridgeStore } from "@/store/useTemplateBridgeStore";
-import type { AppMode, GameTemplateId } from "@mashedgames/shared";
+import { CONFIG_TEXTURE_FIELD_MAP, type AppMode, type GameTemplateId } from "@mashedgames/shared";
 import { useEffect, useRef } from "react";
 
 type DashboardMessenger = {
@@ -69,6 +72,7 @@ export function useBridgeSync({
       previewTemplateIdRef.current = payload.activeTemplateId;
       flushConfigToIframe();
       pushRuntimeAssetsToPreview();
+      pushConfigAssetsToPreview(useConfigStore.getState().config);
     });
 
     let lastTemplateId = previewTemplateIdRef.current;
@@ -84,6 +88,16 @@ export function useBridgeSync({
         messenger.sendLoadTemplate(state.selectedTemplateId);
         flushConfigToIframe();
         return;
+      }
+
+      const assetFieldKeys = Object.keys(CONFIG_TEXTURE_FIELD_MAP);
+      const assetChanged = assetFieldKeys.some(
+        (key) =>
+          state.config[key as keyof typeof state.config] !==
+          prev.config[key as keyof typeof prev.config],
+      );
+      if (assetChanged) {
+        pushConfigAssetsToPreview(state.config);
       }
     });
 
@@ -125,6 +139,7 @@ export function useBridgeSync({
       messenger.initSync(contentWindow ?? null, previewTemplateIdRef.current);
       flushConfigToIframe();
       pushRuntimeAssetsToPreview();
+      pushConfigAssetsToPreview(useConfigStore.getState().config);
       window.setTimeout(() => {
         flushConfigToIframe();
         pushRuntimeAssetsToPreview();

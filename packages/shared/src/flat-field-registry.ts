@@ -1,5 +1,6 @@
 import type { AppMode } from "./flat-game-config";
 import type { GameConfig } from "./flat-game-config";
+import { normalizeTemplateId } from "./template-id";
 
 export type FlatFieldType =
   | "color"
@@ -47,6 +48,10 @@ export type FlatFieldDefinition = {
    * owns their controls.
    */
   styleBindings?: StyleBindings;
+  /** When set, the field is shown only for these template ids. */
+  templateIds?: string[];
+  /** Shown in the panel when the config key is unset. */
+  defaultValue?: number | string | boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -73,6 +78,8 @@ export type GroupDefinition = {
   masterVisibilityKey?: keyof GameConfig & string;
   /** When true the accordion is collapsed by default. */
   defaultCollapsed?: boolean;
+  /** When set, the group is shown only for these template ids. */
+  templateIds?: string[];
 };
 
 export const GROUP_REGISTRY: GroupDefinition[] = [
@@ -88,12 +95,6 @@ export const GROUP_REGISTRY: GroupDefinition[] = [
     masterVisibilityKey: "showStartScreen",
   },
   {
-    id: "gameplay",
-    label: "Gameplay",
-    surface: "studio",
-    defaultCollapsed: true,
-  },
-  {
     id: "highscore",
     label: "Highscore Board",
     surface: "both",
@@ -105,14 +106,35 @@ export const GROUP_REGISTRY: GroupDefinition[] = [
     label: "Lead Capture",
     surface: "both",
     masterVisibilityKey: "showLeadCapture",
-    defaultCollapsed: true,
+    defaultCollapsed: false,
   },
   {
     id: "timer",
     label: "Countdown Timer",
     surface: "both",
     masterVisibilityKey: "showCountdownTimer",
-    defaultCollapsed: true,
+    defaultCollapsed: false,
+  },
+  {
+    id: "gameSprites",
+    label: "Game Sprites",
+    surface: "both",
+    templateIds: ["catch-game"],
+    defaultCollapsed: false,
+  },
+  {
+    id: "goodCollectibles",
+    label: "Good Items",
+    surface: "both",
+    templateIds: ["catch-game"],
+    defaultCollapsed: false,
+  },
+  {
+    id: "badCollectibles",
+    label: "Bad Items",
+    surface: "both",
+    templateIds: ["catch-game"],
+    defaultCollapsed: false,
   },
 ];
 
@@ -186,46 +208,313 @@ export const FLAT_FIELD_REGISTRY: FlatFieldDefinition[] = [
       underlineKey: "ctaLabelUnderline",
     },
   },
-  // ── Gameplay ──────────────────────────────────────────────────────────────
-  {
-    key: "playerSpeed",
-    type: "slider",
-    surface: "studio",
-    label: "Player speed",
-    min: 100,
-    max: 600,
-    step: 10,
-    group: "gameplay",
-  },
   {
     key: "gameDurationSeconds",
     type: "number",
-    surface: "studio",
-    label: "Game duration (seconds)",
+    surface: "both",
+    label: "Duration (seconds)",
     min: 10,
     max: 300,
     step: 5,
-    group: "gameplay",
+    group: "timer",
   },
-  // ── Highscore, Lead Capture, Timer ────────────────────────────────────────
-  // These groups only carry their masterVisibilityKey (header toggle) for now.
-  // Future fields (e.g. highscoreLimit, leadCaptureHeading) are added here.
+  {
+    key: "goodItemPoints",
+    type: "number",
+    surface: "both",
+    label: "Good item points",
+    min: 1,
+    max: 100,
+    step: 1,
+    group: "goodCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 10,
+  },
+  {
+    key: "spawnIntervalMs",
+    type: "number",
+    surface: "both",
+    label: "Spawn interval (ms)",
+    min: 300,
+    max: 3000,
+    step: 50,
+    group: "goodCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 900,
+  },
+  {
+    key: "minSpawnIntervalMs",
+    type: "number",
+    surface: "both",
+    label: "Fastest spawn (ms)",
+    min: 150,
+    max: 2000,
+    step: 50,
+    group: "goodCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 420,
+  },
+  {
+    key: "fallSpeedStart",
+    type: "number",
+    surface: "both",
+    label: "Fall speed start",
+    min: 80,
+    max: 400,
+    step: 10,
+    group: "goodCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 150,
+  },
+  {
+    key: "fallSpeedMax",
+    type: "number",
+    surface: "both",
+    label: "Fall speed max",
+    min: 120,
+    max: 700,
+    step: 10,
+    group: "goodCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 280,
+  },
+  {
+    key: "badItemPenalty",
+    type: "number",
+    surface: "both",
+    label: "Penalty points",
+    min: 0,
+    max: 50,
+    step: 1,
+    group: "badCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 5,
+  },
+  {
+    key: "badSpawnIntervalMs",
+    type: "number",
+    surface: "both",
+    label: "Spawn interval (ms)",
+    min: 300,
+    max: 5000,
+    step: 50,
+    group: "badCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 1800,
+  },
+  {
+    key: "badMinSpawnIntervalMs",
+    type: "number",
+    surface: "both",
+    label: "Fastest spawn (ms)",
+    min: 150,
+    max: 3000,
+    step: 50,
+    group: "badCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 900,
+  },
+  {
+    key: "badFallSpeedStart",
+    type: "number",
+    surface: "both",
+    label: "Fall speed start",
+    min: 80,
+    max: 400,
+    step: 10,
+    group: "badCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 130,
+  },
+  {
+    key: "badFallSpeedMax",
+    type: "number",
+    surface: "both",
+    label: "Fall speed max",
+    min: 120,
+    max: 700,
+    step: 10,
+    group: "badCollectibles",
+    templateIds: ["catch-game"],
+    defaultValue: 260,
+  },
+  // ── Game Sprites (catch-game) ─────────────────────────────────────────────
+  {
+    key: "playerCatcherUrl",
+    type: "image",
+    surface: "both",
+    label: "Catcher",
+    group: "gameSprites",
+    templateIds: ["catch-game"],
+  },
+  {
+    key: "collectibleGoodUrl",
+    type: "image",
+    surface: "both",
+    label: "Good collectible",
+    group: "gameSprites",
+    templateIds: ["catch-game"],
+  },
+  {
+    key: "collectibleBadUrl",
+    type: "image",
+    surface: "both",
+    label: "Bad collectible",
+    group: "gameSprites",
+    templateIds: ["catch-game"],
+  },
+  // ── Lead Capture ──────────────────────────────────────────────────────────
+  {
+    key: "leadCaptureTitle",
+    type: "styled-text",
+    surface: "both",
+    label: "Title",
+    placeholder: "Great run!",
+    group: "leadCapture",
+    styleBindings: {
+      colorKey: "leadCaptureTitleColor",
+      boldKey: "leadCaptureTitleBold",
+      italicKey: "leadCaptureTitleItalic",
+      underlineKey: "leadCaptureTitleUnderline",
+    },
+  },
+  {
+    key: "leadCaptureSubtitle",
+    type: "styled-text",
+    surface: "both",
+    label: "Subtitle",
+    placeholder: "Enter your details to save your score.",
+    group: "leadCapture",
+    styleBindings: {
+      colorKey: "leadCaptureSubtitleColor",
+      boldKey: "leadCaptureSubtitleBold",
+      italicKey: "leadCaptureSubtitleItalic",
+      underlineKey: "leadCaptureSubtitleUnderline",
+    },
+  },
+  {
+    key: "leadCaptureNamePlaceholder",
+    type: "text",
+    surface: "both",
+    label: "Name placeholder",
+    placeholder: "Your name",
+    group: "leadCapture",
+  },
+  {
+    key: "leadCaptureEmailPlaceholder",
+    type: "text",
+    surface: "both",
+    label: "Email placeholder",
+    placeholder: "Email address",
+    group: "leadCapture",
+  },
+  {
+    key: "leadCaptureSubmitLabel",
+    type: "styled-text",
+    surface: "both",
+    label: "Submit label",
+    placeholder: "Submit",
+    group: "leadCapture",
+    styleBindings: {
+      colorKey: "leadCaptureSubmitColor",
+      boldKey: "leadCaptureSubmitBold",
+      italicKey: "leadCaptureSubmitItalic",
+      underlineKey: "leadCaptureSubmitUnderline",
+    },
+  },
+  {
+    key: "leadCaptureRetryLabel",
+    type: "styled-text",
+    surface: "both",
+    label: "Try again label",
+    placeholder: "Try again",
+    group: "leadCapture",
+    styleBindings: {
+      colorKey: "leadCaptureRetryColor",
+      boldKey: "leadCaptureRetryBold",
+      italicKey: "leadCaptureRetryItalic",
+      underlineKey: "leadCaptureRetryUnderline",
+    },
+  },
+  // ── Highscore Board ───────────────────────────────────────────────────────
+  {
+    key: "highscoreTitle",
+    type: "styled-text",
+    surface: "both",
+    label: "Title",
+    placeholder: "Leaderboard",
+    group: "highscore",
+    styleBindings: {
+      colorKey: "highscoreTitleColor",
+      boldKey: "highscoreTitleBold",
+      italicKey: "highscoreTitleItalic",
+      underlineKey: "highscoreTitleUnderline",
+    },
+  },
+  {
+    key: "highscoreSubtitle",
+    type: "styled-text",
+    surface: "both",
+    label: "Subtitle",
+    placeholder: "Top scores this week",
+    group: "highscore",
+    styleBindings: {
+      colorKey: "highscoreSubtitleColor",
+      boldKey: "highscoreSubtitleBold",
+      italicKey: "highscoreSubtitleItalic",
+      underlineKey: "highscoreSubtitleUnderline",
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-export function fieldsForMode(mode: AppMode): FlatFieldDefinition[] {
-  const allowed: FlatFieldSurface[] =
-    mode === "studio" ? ["studio", "both"] : ["configurator", "both"];
-  return FLAT_FIELD_REGISTRY.filter((f) => allowed.includes(f.surface));
+function matchesTemplate(
+  templateIds: string[] | undefined,
+  activeTemplateId?: string,
+): boolean {
+  if (!templateIds || templateIds.length === 0) {
+    return true;
+  }
+  if (!activeTemplateId) {
+    return true;
+  }
+  return templateIds.includes(normalizeTemplateId(activeTemplateId));
 }
 
-export function groupsForMode(mode: AppMode): GroupDefinition[] {
+export function fieldsForMode(
+  mode: AppMode,
+  activeTemplateId?: string,
+): FlatFieldDefinition[] {
   const allowed: FlatFieldSurface[] =
     mode === "studio" ? ["studio", "both"] : ["configurator", "both"];
-  return GROUP_REGISTRY.filter((g) => allowed.includes(g.surface));
+  return FLAT_FIELD_REGISTRY.filter(
+    (field) =>
+      allowed.includes(field.surface) &&
+      matchesTemplate(field.templateIds, activeTemplateId),
+  );
+}
+
+export function groupsForMode(
+  mode: AppMode,
+  activeTemplateId?: string,
+): GroupDefinition[] {
+  const allowed: FlatFieldSurface[] =
+    mode === "studio" ? ["studio", "both"] : ["configurator", "both"];
+  return GROUP_REGISTRY.filter((group) => {
+    if (!allowed.includes(group.surface)) {
+      return false;
+    }
+    if (!matchesTemplate(group.templateIds, activeTemplateId)) {
+      return false;
+    }
+    if (group.masterVisibilityKey) {
+      return true;
+    }
+    return fieldsForGroup(group.id, mode, activeTemplateId).length > 0;
+  });
 }
 
 /**
@@ -236,14 +525,18 @@ export function groupsForMode(mode: AppMode): GroupDefinition[] {
 export function fieldsForGroup(
   groupId: string,
   mode: AppMode,
+  activeTemplateId?: string,
 ): FlatFieldDefinition[] {
-  return fieldsForMode(mode).filter((f) => f.group === groupId);
+  return fieldsForMode(mode, activeTemplateId).filter((f) => f.group === groupId);
 }
 
 /**
  * Returns fields that carry no group assignment for the given mode.
  * These are rendered above all accordion groups.
  */
-export function ungroupedFields(mode: AppMode): FlatFieldDefinition[] {
-  return fieldsForMode(mode).filter((f) => !f.group);
+export function ungroupedFields(
+  mode: AppMode,
+  activeTemplateId?: string,
+): FlatFieldDefinition[] {
+  return fieldsForMode(mode, activeTemplateId).filter((f) => !f.group);
 }

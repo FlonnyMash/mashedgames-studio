@@ -1,6 +1,10 @@
 "use client";
 
 import { createDashboardMessenger } from "@/bridge/messenger";
+import {
+  listConfiguredAssetUploads,
+  type GameConfig,
+} from "@mashedgames/shared";
 import { create } from "state";
 
 type PreviewMessenger = ReturnType<typeof createDashboardMessenger>;
@@ -25,4 +29,15 @@ export function pushRuntimeAssetsToPreview(): void {
     return;
   }
   messenger.sendRuntimeAssets(runtimeAssets);
+}
+
+export function pushConfigAssetsToPreview(config: GameConfig): void {
+  const { messenger, runtimeAssets } = usePreviewBridgeStore.getState();
+  if (!messenger) {
+    return;
+  }
+
+  for (const upload of listConfiguredAssetUploads(config, runtimeAssets)) {
+    messenger.sendLoadExternalAsset(upload.textureKey, upload.absolutePath);
+  }
 }

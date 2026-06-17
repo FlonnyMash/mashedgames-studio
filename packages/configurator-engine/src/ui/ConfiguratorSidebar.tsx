@@ -15,6 +15,7 @@ export function ConfiguratorSidebar({
   ) => void | Promise<void>;
 }) {
   const config = useConfiguratorStore((state) => state.config);
+  const projectId = useConfiguratorStore((state) => state.projectId);
   const patchConfig = useConfiguratorStore((state) => state.patchConfig);
   const resetBranding = useConfiguratorStore((state) => state.resetBranding);
   const uploadBrandingAsset = useConfiguratorStore(
@@ -23,8 +24,15 @@ export function ConfiguratorSidebar({
 
   const handleImageFile =
     onImageFile ??
-    ((file: File, field: FlatFieldDefinition) =>
-      uploadBrandingAsset(file, field.key));
+    (async (file: File, field: FlatFieldDefinition) => {
+      try {
+        await uploadBrandingAsset(file, field.key);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to upload sprite.";
+        window.alert(message);
+      }
+    });
 
   return (
     <aside className="flex h-full w-[360px] shrink-0 flex-col border-l border-zinc-200 bg-white">
@@ -50,6 +58,7 @@ export function ConfiguratorSidebar({
           mode="configurator"
           onFieldChange={patchConfig}
           onImageFile={handleImageFile}
+          assetPreviewContext={{ projectId: projectId ?? undefined }}
         />
         {previewSlot}
       </div>

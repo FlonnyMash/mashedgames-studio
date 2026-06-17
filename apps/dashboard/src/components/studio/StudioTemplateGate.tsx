@@ -132,9 +132,13 @@ export function StudioTemplateGate({
     }
 
     setError(null);
-    useWorkspaceSessionStore
-      .getState()
-      .setActiveStudioTemplate(effectiveTemplateId);
+    // Only bind session while on the workspace route — avoids undoing an exit
+    // to /studio/templates while the old ?template= query is still in flight.
+    if (pathname === "/studio") {
+      useWorkspaceSessionStore
+        .getState()
+        .setActiveStudioTemplate(effectiveTemplateId);
+    }
 
     if (selectedTemplateId !== effectiveTemplateId) {
       useStudioConfigStore
@@ -153,6 +157,7 @@ export function StudioTemplateGate({
     apiTemplateIds,
     detached,
     effectiveTemplateId,
+    pathname,
     selectedTemplateId,
     staticTemplateOptions,
     templateParam,
@@ -169,7 +174,10 @@ export function StudioTemplateGate({
         <p className="text-sm text-red-600">{error}</p>
         <button
           type="button"
-          onClick={() => router.push("/studio/templates")}
+          onClick={() => {
+            useWorkspaceSessionStore.getState().clearStudioSession();
+            router.replace("/studio/templates");
+          }}
           className="rounded-lg border border-zinc-200 px-4 py-2 text-sm hover:bg-zinc-50"
         >
           Back to templates

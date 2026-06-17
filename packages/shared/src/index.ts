@@ -23,6 +23,18 @@ export {
 } from "./asset-reference";
 
 export {
+  resolveAssetPreviewUrl,
+  type AssetPreviewContext,
+} from "./resolve-asset-preview-url";
+
+export {
+  CONFIG_TEXTURE_FIELD_MAP,
+  listConfiguredAssetUploads,
+  textureKeyForConfigField,
+  type ConfigAssetFieldKey,
+} from "./config-asset-fields";
+
+export {
   AppModeSchema,
   DEFAULT_GAME_CONFIG,
   DEFAULT_GAME_TEMPLATE_ID,
@@ -45,6 +57,11 @@ export {
   isLegacyTemplateId,
   normalizeTemplateId,
 } from "./template-id";
+
+export {
+  CATCH_GAME_CONFIG_DEFAULTS,
+  applyTemplateConfigDefaults,
+} from "./template-config-defaults";
 
 export {
   FLAT_FIELD_REGISTRY,

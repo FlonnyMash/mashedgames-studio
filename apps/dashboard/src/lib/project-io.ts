@@ -16,6 +16,7 @@ import {
   type GameTemplateId,
   type ParentLockSnapshot,
   type SaveMode,
+  textureKeyForConfigField,
 } from "@mashedgames/shared";
 import {
   migrateClientBrandingAssets,
@@ -378,14 +379,6 @@ export async function importProjectAsset(
   }>
 > {
   try {
-    if (!isWorkspaceDesktop()) {
-      return {
-        ok: false,
-        error: "OS asset import is only available in the desktop app.",
-        status: 400,
-      };
-    }
-
     ensureWorkspaceExists();
     const projectDir = resolveProjectDir(projectId);
     if (!existsSync(projectDir)) {
@@ -435,7 +428,7 @@ export async function importProjectAsset(
       data: {
         relativePath,
         absolutePath,
-        textureKey: targetPath === "logoUrl" ? "logo" : null,
+        textureKey: textureKeyForConfigField(targetPath),
         client,
         manifest,
       },
