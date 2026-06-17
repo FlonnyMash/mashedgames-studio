@@ -8,7 +8,7 @@ import type {
   GameProjectManifest,
   ParentDriftReport,
 } from "@mashedgames/shared";
-import { Loader2 } from "lucide-react";
+import { FlaskConical, Loader2, LogOut } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   pushConfigAssetsToPreview,
@@ -17,6 +17,46 @@ import {
 } from "@/lib/preview-bridge-store";
 import { useWorkspaceSessionStore } from "@/lib/workspace-session-store";
 import { useEffect, useState, type ReactNode } from "react";
+
+// ---------------------------------------------------------------------------
+// Studio-test mode banner
+// ---------------------------------------------------------------------------
+
+function StudioTestBanner({ templateId }: { templateId: string }) {
+  const router = useRouter();
+
+  function handleExit() {
+    useConfiguratorStore.getState().clearProject();
+    router.push(`/studio?template=${encodeURIComponent(templateId)}`);
+  }
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex shrink-0 items-center justify-between gap-4 border-b border-violet-300 bg-violet-50 px-6 py-2.5"
+    >
+      <div className="flex items-center gap-2 text-xs font-medium text-violet-700">
+        <FlaskConical className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <span>
+          <strong>STUDIO TEST MODE</strong> — Changes here will not be saved as a Project.
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={handleExit}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-violet-300 bg-white px-3 py-1 text-xs font-medium text-violet-700 transition-colors hover:bg-violet-100"
+      >
+        <LogOut className="h-3.5 w-3.5" aria-hidden />
+        Exit to Studio
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main gate
+// ---------------------------------------------------------------------------
 
 export function ConfiguratorProjectGate({
   children,
@@ -29,6 +69,11 @@ export function ConfiguratorProjectGate({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const projectParam = searchParams.get("project");
+  const modeParam = searchParams.get("mode");
+  const templateIdParam = searchParams.get("templateId");
+
+  const isStudioTestMode = modeParam === "studio-test" && Boolean(templateIdParam);
+
   const activeSessionProjectId = useWorkspaceSessionStore(
     (s) => s.activeConfiguratorProjectId,
   );
@@ -36,13 +81,77 @@ export function ConfiguratorProjectGate({
     projectParam ?? (detached ? activeSessionProjectId : null);
 
   const projectId = useConfiguratorStore((s) => s.projectId);
-  const [loading, setLoading] = useState(Boolean(projectParam));
+  const [loading, setLoading] = useState(
+    isStudioTestMode ? true : Boolean(projectParam),
+  );
   const [error, setError] = useState<string | null>(null);
   const [driftReport, setDriftReport] = useState<ParentDriftReport | null>(null);
   const [driftOpen, setDriftOpen] = useState(false);
   const [, setPreviewBlocked] = useState(false);
 
+  // ---------------------------------------------------------------------------
+  // Studio-test mode: load template config directly (no project)
+  // ---------------------------------------------------------------------------
   useEffect(() => {
+    if (!isStudioTestMode || !templateIdParam) return;
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    async function loadTemplate() {
+      try {
+        const res = await fetch(
+          `/api/templates/${encodeURIComponent(templateIdParam!)}/config`,
+        );
+        const data = (await res.json()) as {
+          ok?: boolean;
+          error?: string;
+          config?: GameConfig;
+          runtimeAssets?: Record<string, string>;
+        };
+
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error ?? "Failed to load template.");
+        }
+
+        if (cancelled) return;
+
+        if (data.config) {
+          useConfiguratorStore
+            .getState()
+            .setConfig({ ...data.config, appMode: "configurator" });
+        }
+
+        if (data.runtimeAssets) {
+          usePreviewBridgeStore
+            .getState()
+            .setRuntimeAssets(data.runtimeAssets);
+          pushRuntimeAssetsToPreview();
+          if (data.config) pushConfigAssetsToPreview(data.config);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Load failed.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadTemplate();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isStudioTestMode, templateIdParam]);
+
+  // ---------------------------------------------------------------------------
+  // Standard project mode: load project by ID
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (isStudioTestMode) return;
+
     if (!effectiveProjectId) {
       if (!detached) {
         router.replace("/configurator/projects");
@@ -57,8 +166,6 @@ export function ConfiguratorProjectGate({
       return;
     }
 
-    // Only bind session while on the workspace route — avoids undoing an exit
-    // to /configurator/projects while the old ?project= query is still in flight.
     if (pathname === "/configurator") {
       useWorkspaceSessionStore
         .getState()
@@ -90,9 +197,7 @@ export function ConfiguratorProjectGate({
           throw new Error(data.error ?? "Failed to load project.");
         }
 
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
 
         useConfiguratorStore.getState().hydrateProject({
           manifest: data.manifest,
@@ -138,6 +243,7 @@ export function ConfiguratorProjectGate({
       cancelled = true;
     };
   }, [
+    isStudioTestMode,
     activeSessionProjectId,
     detached,
     effectiveProjectId,
@@ -147,6 +253,49 @@ export function ConfiguratorProjectGate({
     router,
   ]);
 
+  // ---------------------------------------------------------------------------
+  // Render: studio-test mode path
+  // ---------------------------------------------------------------------------
+  if (isStudioTestMode) {
+    if (loading) {
+      return (
+        <div className="flex flex-1 items-center justify-center gap-2 text-sm text-zinc-600">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Loading template…
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+          <p className="text-sm text-red-600">{error}</p>
+          <button
+            type="button"
+            onClick={() =>
+              router.push(
+                `/studio?template=${encodeURIComponent(templateIdParam!)}`,
+              )
+            }
+            className="rounded-lg border border-zinc-200 px-4 py-2 text-sm hover:bg-zinc-50"
+          >
+            Back to Studio
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <StudioTestBanner templateId={templateIdParam!} />
+        {children}
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render: standard project mode path
+  // ---------------------------------------------------------------------------
   if (!effectiveProjectId) {
     return null;
   }

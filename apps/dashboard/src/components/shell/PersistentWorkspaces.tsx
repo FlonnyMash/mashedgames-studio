@@ -73,6 +73,13 @@ function PersistentWorkspacesInner({ children }: { children: ReactNode }) {
     return <WorkspaceRouteShell>{children}</WorkspaceRouteShell>;
   }
 
+  const modeParam = searchParams.get("mode");
+  const templateIdParam = searchParams.get("templateId");
+  const isStudioTestMode =
+    pathname === "/configurator" &&
+    modeParam === "studio-test" &&
+    Boolean(templateIdParam);
+
   const isStudioListRoute = pathname === "/studio/templates";
   const isConfiguratorListRoute = pathname === "/configurator/projects";
 
@@ -82,7 +89,7 @@ function PersistentWorkspacesInner({ children }: { children: ReactNode }) {
     Boolean(templateParam ?? activeStudioTemplateId);
   const showConfigurator =
     pathname === "/configurator" &&
-    Boolean(projectParam ?? activeConfiguratorProjectId);
+    (Boolean(projectParam ?? activeConfiguratorProjectId) || isStudioTestMode);
 
   const mountStudio =
     STUDIO_MODE_ENABLED &&
@@ -92,7 +99,8 @@ function PersistentWorkspacesInner({ children }: { children: ReactNode }) {
   const mountConfigurator =
     !isConfiguratorListRoute &&
     (Boolean(activeConfiguratorProjectId) ||
-      (pathname === "/configurator" && Boolean(projectParam)));
+      (pathname === "/configurator" && Boolean(projectParam)) ||
+      isStudioTestMode);
   const workspaceActive = showStudio || showConfigurator;
 
   return (

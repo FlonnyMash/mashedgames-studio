@@ -4,6 +4,7 @@ import path from "node:path";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { templateLibraryRoot } from "@/lib/project-paths";
 import { engineTemplatesRoot } from "@/lib/template-library-root";
+import { readTemplateMeta, buildMetaAssetUrl } from "@/lib/template-meta-io";
 
 export type TemplateStudioMeta = {
   id: string;
@@ -135,6 +136,10 @@ export function listTemplateOverviewFromDisk(): Array<{
   id: string;
   displayName: string;
   status: TemplateManifestStatus;
+  description?: string;
+  thumbnailUrl?: string;
+  previewUrls?: string[];
+  tutorial?: string;
 }> {
   const root = engineTemplatesRoot;
   if (!existsSync(root)) return [];
@@ -150,6 +155,10 @@ export function listTemplateOverviewFromDisk(): Array<{
     id: string;
     displayName: string;
     status: TemplateManifestStatus;
+    description?: string;
+    thumbnailUrl?: string;
+    previewUrls?: string[];
+    tutorial?: string;
   }> = [];
 
   for (const templateId of names) {
@@ -157,11 +166,27 @@ export function listTemplateOverviewFromDisk(): Array<{
     if (!statSync(entryPath).isDirectory()) continue;
 
     const manifestTs = readManifestTs(templateId);
+    const meta = readTemplateMeta(templateId);
+
+    const thumbnailUrl = meta.thumbnail
+      ? buildMetaAssetUrl(templateId, meta.thumbnail)
+      : undefined;
+    const previewUrls = meta.previews.length > 0
+      ? meta.previews.map((p) => buildMetaAssetUrl(templateId, path.basename(p)))
+      : undefined;
+
     if (!manifestTs) {
-      // Only include this directory if a config.json fallback exists
       const fallbackName = readConfigJsonDisplayName(templateId);
       if (fallbackName === null) continue;
-      results.push({ id: templateId, displayName: fallbackName, status: "draft" });
+      results.push({
+        id: templateId,
+        displayName: fallbackName,
+        status: "draft",
+        description: meta.description || undefined,
+        thumbnailUrl,
+        previewUrls,
+        tutorial: meta.tutorial || undefined,
+      });
       continue;
     }
 
@@ -169,7 +194,15 @@ export function listTemplateOverviewFromDisk(): Array<{
       parseManifestField(manifestTs, "displayName") ??
       templateId.replace(/-/g, " ");
 
-    results.push({ id: templateId, displayName, status: "published" });
+    results.push({
+      id: templateId,
+      displayName,
+      status: "published",
+      description: meta.description || undefined,
+      thumbnailUrl,
+      previewUrls,
+      tutorial: meta.tutorial || undefined,
+    });
   }
 
   return results;

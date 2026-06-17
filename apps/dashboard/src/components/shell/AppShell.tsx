@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { useLayoutEffect } from "react";
+import { AppMenuBar } from "@/components/shell/AppMenuBar";
 import { BrandMarkHomeLink } from "@/components/shell/BrandMarkHomeLink";
 import { EnvironmentNav } from "@/components/shell/EnvironmentNav";
 import { MetaBuilderDevFabHost } from "@/components/shell/MetaBuilderDevFabHost";
@@ -48,6 +49,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <TemplatePreviewWarmup />
+      <AppMenuBar />
       <header className="flex shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">
         <div className="flex items-center gap-3">
           <BrandMarkHomeLink onHomeClick={requestHomeNavigation} />

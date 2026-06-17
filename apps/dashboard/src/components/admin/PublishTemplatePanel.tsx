@@ -159,33 +159,63 @@ export function PublishTemplatePanel() {
         const tier: Tier = tierSelections[templateId] ?? "free";
         const body = await publishTemplateViaIpc({ templateId, tier });
 
-        if (body?.ok) {
-          const newVersion: PublishedVersion = {
-            version: body.version,
-            publishedAt: new Date().toISOString(),
-          };
+        if (body !== null) {
+          // IPC bridge responded — use its result regardless of success/failure.
+          // Never fall through: the bridge is functional, so any failure is real.
+          if (body.ok) {
+            const newVersion: PublishedVersion = {
+              version: body.version,
+              publishedAt: new Date().toISOString(),
+            };
 
-          setPublishedVersions((prev) => ({ ...prev, [templateId]: newVersion }));
-          setTemplateStates((prev) => ({
-            ...prev,
-            [templateId]: { status: "done", version: body.version },
-          }));
-
-          toast.success(`Template published`, {
-            description: `${templateId} v${body.version} is now live.`,
-          });
-
-          setTimeout(() => {
+            setPublishedVersions((prev) => ({ ...prev, [templateId]: newVersion }));
             setTemplateStates((prev) => ({
               ...prev,
-              [templateId]: { status: "idle", publishedVersion: newVersion },
+              [templateId]: { status: "done", version: body.version },
             }));
-          }, 3000);
+
+            toast.success(`Template published`, {
+              description: `${templateId} v${body.version} is now live.`,
+            });
+
+            setTimeout(() => {
+              setTemplateStates((prev) => ({
+                ...prev,
+                [templateId]: { status: "idle", publishedVersion: newVersion },
+              }));
+            }, 3000);
+            return;
+          }
+
+          // IPC bridge returned a failure — map the error code to a readable message.
+          const IPC_ERROR_MESSAGES: Record<string, string> = {
+            SESSION_EXPIRED:
+              "Your session has expired. Please sign out and sign in again.",
+            DASHBOARD_NOT_READY:
+              "The dashboard server is not ready yet. Wait a moment and try again.",
+            ADMIN_IPC_NOT_INITIALIZED:
+              "Admin IPC not initialised. Restart the app and try again.",
+          };
+          const ipcMsg =
+            IPC_ERROR_MESSAGES[body.error] ??
+            body.error ??
+            "Publish failed via desktop bridge.";
+
+          toast.error("Publish failed", { description: ipcMsg });
+          setTemplateStates((prev) => ({
+            ...prev,
+            [templateId]: {
+              status: "idle",
+              publishedVersion: publishedVersions[templateId] ?? null,
+            },
+          }));
           return;
         }
 
-        // IPC unavailable in this running Electron instance (stale main/preload).
-        // Fall back to web path below before surfacing an error.
+        // body === null: IPC channel is not registered in this Electron build
+        // (missing handler / channel not in allowlist). Fall through to the
+        // web-session path so the admin panel still works in dev mode where
+        // the renderer has a live Supabase browser session.
       }
 
       const {
@@ -193,13 +223,7 @@ export function PublishTemplatePanel() {
       } = await supabase.auth.getSession();
 
       if (!session?.access_token) {
-        if (isElectronRuntime()) {
-          toast.error(
-            "Desktop auth bridge is out of date. Restart the app to refresh IPC handlers.",
-          );
-        } else {
-          toast.error("Session expired. Please log in again.");
-        }
+        toast.error("Session expired. Please sign in again.");
         setTemplateStates((prev) => ({
           ...prev,
           [templateId]: {

@@ -1,4 +1,5 @@
 import { listProjectIds, loadProject } from "@/lib/project-io";
+import { readTemplateMeta, buildMetaAssetUrl } from "@/lib/template-meta-io";
 import { normalizeTemplateId, SaveModeSchema } from "@mashedgames/shared";
 import type { NextRequest } from "next/server";
 
@@ -27,14 +28,28 @@ export async function GET(request: NextRequest) {
         if (!loaded.ok) {
           return { projectId, error: loaded.error };
         }
+        const parentTemplateId = normalizeTemplateId(
+          loaded.data.manifest.parentTemplateId,
+        );
+
+        // Inherit the template thumbnail — read-only, never saved to project
+        let thumbnailUrl: string | undefined;
+        try {
+          const meta = readTemplateMeta(parentTemplateId);
+          if (meta.thumbnail) {
+            thumbnailUrl = buildMetaAssetUrl(parentTemplateId, meta.thumbnail);
+          }
+        } catch {
+          // Non-fatal — thumbnail is informational only
+        }
+
         return {
           projectId,
           displayName: loaded.data.manifest.displayName,
-          parentTemplateId: normalizeTemplateId(
-            loaded.data.manifest.parentTemplateId,
-          ),
+          parentTemplateId,
           parentVersion: loaded.data.manifest.parentVersion,
           mode: loaded.data.manifest.mode,
+          thumbnailUrl,
         };
       }),
     );

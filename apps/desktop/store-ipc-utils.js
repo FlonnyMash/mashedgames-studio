@@ -206,7 +206,7 @@ async function fetchStoreCatalog() {
       supabase
         .from("templates")
         .select(
-          "id, template_slug, tier, version, manifest, published_at, is_latest, storage_key, checksum, bundle_signature, yanked",
+          "id, template_slug, tier, version, manifest, published_at, is_latest, storage_key, checksum, bundle_signature, yanked, description, tutorial, thumbnail_url, preview_urls",
         )
         .eq("is_latest", true)
         .eq("yanked", false)

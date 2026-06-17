@@ -6,6 +6,10 @@ import type { NextRequest } from "next/server";
 import type { Database } from "@/types/database.types";
 import { listTemplateOverviewFromDisk } from "@/lib/template-studio-meta";
 import { gameEngineRoot } from "@/lib/template-library-root";
+import {
+  readTemplateMeta,
+  resolveTemplateMetaDir,
+} from "@/lib/template-meta-io";
 
 export const runtime = "nodejs";
 
@@ -23,7 +27,12 @@ type PublishResponse =
   | { ok: false; error: string };
 
 const VALID_TIERS = new Set<string>(["free", "premium", "enterprise"]);
-const STORAGE_BUCKET = "template-bundles";
+
+/** Bucket for compiled game bundles (private — served only to licensed clients). */
+const BUNDLE_BUCKET = "template-bundles";
+
+/** Bucket for public promotional assets (thumbnail, previews). Must be public. */
+const META_ASSETS_BUCKET = "template-assets";
 
 // ---------------------------------------------------------------------------
 // Auth — same pattern as /api/admin/ref-data
@@ -121,7 +130,6 @@ function buildEngineBundle(
     };
   }
 
-  // Read index.html to capture the entry point and asset references.
   const indexPath = path.join(distDir, "index.html");
   const indexHtml = existsSync(indexPath)
     ? readFileSync(indexPath, "utf8")
@@ -139,6 +147,149 @@ function buildEngineBundle(
   };
 
   return { ok: true, buffer: Buffer.from(JSON.stringify(manifest), "utf8") };
+}
+
+// ---------------------------------------------------------------------------
+// Meta asset helpers
+// ---------------------------------------------------------------------------
+
+const CONTENT_TYPES: Record<string, string> = {
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+};
+
+/**
+ * Ensure the public `template-assets` bucket exists. Non-fatal if creation
+ * fails — the upload attempt will surface the error instead.
+ */
+async function ensureMetaAssetsBucket(
+  serviceClient: ReturnType<typeof createClient<Database>>,
+): Promise<void> {
+  const { data: buckets, error: listError } =
+    await serviceClient.storage.listBuckets();
+
+  if (listError) {
+    console.warn(
+      "[publish-template] Could not list storage buckets:",
+      listError.message,
+    );
+    return;
+  }
+
+  if (!buckets?.find((b) => b.name === META_ASSETS_BUCKET)) {
+    const { error: createError } = await serviceClient.storage.createBucket(
+      META_ASSETS_BUCKET,
+      { public: true },
+    );
+    if (createError) {
+      console.warn(
+        `[publish-template] Could not create "${META_ASSETS_BUCKET}" bucket:`,
+        createError.message,
+      );
+    } else {
+      console.info(
+        `[publish-template] Created public storage bucket "${META_ASSETS_BUCKET}".`,
+      );
+    }
+  }
+}
+
+/**
+ * Upload a single local meta asset file to Storage and return its public URL.
+ * Returns null on any failure — meta upload errors never abort the publish.
+ */
+async function uploadMetaAsset(
+  serviceClient: ReturnType<typeof createClient<Database>>,
+  localPath: string,
+  storagePath: string,
+): Promise<string | null> {
+  if (!existsSync(localPath)) {
+    console.warn(
+      `[publish-template] Meta asset not found on disk, skipping: ${localPath}`,
+    );
+    return null;
+  }
+
+  try {
+    const buffer = readFileSync(localPath);
+    const ext = path.extname(localPath).toLowerCase();
+    const contentType = CONTENT_TYPES[ext] ?? "application/octet-stream";
+
+    const { error: uploadError } = await serviceClient.storage
+      .from(META_ASSETS_BUCKET)
+      .upload(storagePath, buffer, { contentType, upsert: true });
+
+    if (uploadError) {
+      console.error(
+        `[publish-template] Meta asset upload failed (${storagePath}):`,
+        uploadError.message,
+      );
+      return null;
+    }
+
+    const {
+      data: { publicUrl },
+    } = serviceClient.storage.from(META_ASSETS_BUCKET).getPublicUrl(storagePath);
+
+    return publicUrl;
+  } catch (err) {
+    console.error(
+      `[publish-template] Unexpected error uploading meta asset (${localPath}):`,
+      err,
+    );
+    return null;
+  }
+}
+
+type MetaPublicUrls = {
+  description: string;
+  tutorial: string;
+  thumbnailUrl: string;
+  previewUrls: string[];
+};
+
+/**
+ * Read local template-meta.json, upload any referenced assets to
+ * Supabase Storage, and return the resolved public URLs.
+ * All storage errors are non-fatal — the publish continues regardless.
+ */
+async function resolveMetaPublicUrls(
+  serviceClient: ReturnType<typeof createClient<Database>>,
+  templateId: string,
+): Promise<MetaPublicUrls> {
+  const meta = readTemplateMeta(templateId);
+  const metaDir = resolveTemplateMetaDir(templateId);
+
+  // Thumbnail
+  let thumbnailUrl = "";
+  if (meta.thumbnail) {
+    const localPath = path.join(metaDir, path.basename(meta.thumbnail));
+    const storagePath = `meta/${templateId}/${path.basename(meta.thumbnail)}`;
+    const url = await uploadMetaAsset(serviceClient, localPath, storagePath);
+    if (url) thumbnailUrl = url;
+  }
+
+  // Previews (preserve order)
+  const previewUrls: string[] = [];
+  for (const previewFilename of meta.previews) {
+    const basename = path.basename(previewFilename);
+    const localPath = path.join(metaDir, basename);
+    const storagePath = `meta/${templateId}/${basename}`;
+    const url = await uploadMetaAsset(serviceClient, localPath, storagePath);
+    if (url) previewUrls.push(url);
+  }
+
+  return {
+    description: meta.description,
+    tutorial: meta.tutorial,
+    thumbnailUrl,
+    previewUrls,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -216,9 +367,6 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   // --- Build bundle ---
-  // The "template" in this project is the compiled game-engine dist.
-  // We package it as a JSON manifest pointing to the asset files so the
-  // DRM runtime knows what to load without shipping the binaries themselves.
   const bundleResult = buildEngineBundle(templateId, templateMeta.displayName);
   if (!bundleResult.ok) {
     return Response.json<PublishResponse>(
@@ -229,11 +377,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const bundleBuffer = bundleResult.buffer;
 
-  // Checksum: SHA-256 hex of the raw bundle bytes.
   const checksum = createHash("sha256").update(bundleBuffer).digest("hex");
-
-  // Bundle signature: HMAC-SHA256 using the service role key as the signing
-  // secret. Verifiable server-side; never exposed to clients.
   const bundleSignature = createHmac("sha256", serviceRoleKey)
     .update(bundleBuffer)
     .digest("hex");
@@ -247,28 +391,34 @@ export async function POST(request: NextRequest): Promise<Response> {
   const version = await resolveNextVersion(serviceClient, templateId);
   const storageKey = `${templateId}/v${version}.json`;
 
-  // --- Ensure bucket exists (create it if missing) ---
-  const { data: buckets, error: listError } =
+  // --- Ensure the private bundle bucket exists ---
+  const { data: buckets, error: listBucketsError } =
     await serviceClient.storage.listBuckets();
 
-  if (!listError && !buckets?.find((b) => b.name === STORAGE_BUCKET)) {
+  if (!listBucketsError && !buckets?.find((b) => b.name === BUNDLE_BUCKET)) {
     const { error: createError } = await serviceClient.storage.createBucket(
-      STORAGE_BUCKET,
+      BUNDLE_BUCKET,
       { public: false },
     );
     if (createError) {
-      console.error("[publish-template] Failed to create storage bucket:", createError);
+      console.error(
+        "[publish-template] Failed to create bundle storage bucket:",
+        createError,
+      );
       return Response.json<PublishResponse>(
-        { ok: false, error: `Could not create storage bucket: ${createError.message}` },
+        {
+          ok: false,
+          error: `Could not create storage bucket: ${createError.message}`,
+        },
         { status: 500 },
       );
     }
-    console.info(`[publish-template] Created storage bucket "${STORAGE_BUCKET}".`);
+    console.info(`[publish-template] Created storage bucket "${BUNDLE_BUCKET}".`);
   }
 
-  // --- Upload to Supabase Storage ---
+  // --- Upload bundle to Supabase Storage ---
   const { error: uploadError } = await serviceClient.storage
-    .from(STORAGE_BUCKET)
+    .from(BUNDLE_BUCKET)
     .upload(storageKey, bundleBuffer, {
       contentType: "application/json",
       upsert: false,
@@ -282,6 +432,20 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
+  // --- Ensure the public meta-assets bucket exists (non-fatal) ---
+  await ensureMetaAssetsBucket(serviceClient);
+
+  // --- Upload local meta assets and resolve public URLs ---
+  // Non-fatal: if meta uploads fail we still publish the bundle, just without
+  // rich storefront content. Errors are already logged inside the helper.
+  const metaUrls = await resolveMetaPublicUrls(serviceClient, templateId);
+
+  console.info(
+    `[publish-template] Meta resolved for ${templateId}: ` +
+      `thumbnail=${metaUrls.thumbnailUrl ? "ok" : "none"}, ` +
+      `previews=${metaUrls.previewUrls.length}`,
+  );
+
   // --- Mark previous latest as stale ---
   await serviceClient
     .from("templates")
@@ -289,7 +453,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     .eq("template_slug", templateId)
     .eq("is_latest", true);
 
-  // --- Insert new template row ---
+  // --- Build DB payload (includes the four new meta columns) ---
   const manifest = {
     id: templateId,
     displayName: templateMeta.displayName,
@@ -307,6 +471,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     manifest,
     is_latest: true,
     yanked: false,
+    description: metaUrls.description,
+    tutorial: metaUrls.tutorial,
+    thumbnail_url: metaUrls.thumbnailUrl,
+    preview_urls: metaUrls.previewUrls,
   };
 
   const { data: inserted, error: insertError } = await serviceClient
@@ -315,8 +483,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     .select("id")
     .single();
 
-  // Some environments enforce UNIQUE(template_slug), which means "re-publish"
-  // must UPDATE the existing row instead of inserting a version history row.
+  // UNIQUE(template_slug) conflict → UPDATE the existing row instead.
   if (insertError?.code === "23505") {
     const { data: updated, error: updateError } = await serviceClient
       .from("templates")
@@ -326,8 +493,11 @@ export async function POST(request: NextRequest): Promise<Response> {
       .single();
 
     if (updateError || !updated) {
-      console.error("[publish-template] Update-after-conflict failed:", updateError);
-      await serviceClient.storage.from(STORAGE_BUCKET).remove([storageKey]);
+      console.error(
+        "[publish-template] Update-after-conflict failed:",
+        updateError,
+      );
+      await serviceClient.storage.from(BUNDLE_BUCKET).remove([storageKey]);
       return Response.json<PublishResponse>(
         { ok: false, error: updateError?.message ?? "Database update failed." },
         { status: 500 },
@@ -347,8 +517,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   if (insertError || !inserted) {
     console.error("[publish-template] Insert failed:", insertError);
-    // Roll back the storage upload.
-    await serviceClient.storage.from(STORAGE_BUCKET).remove([storageKey]);
+    await serviceClient.storage.from(BUNDLE_BUCKET).remove([storageKey]);
     return Response.json<PublishResponse>(
       { ok: false, error: insertError?.message ?? "Database insert failed." },
       { status: 500 },

@@ -9,6 +9,13 @@ const {
 
 const ASSETS_DIR_NAME = "assets";
 
+/**
+ * Subdirectory name used to store promotional/editorial meta assets
+ * (thumbnails, previews, tutorials). These are never part of a game bundle
+ * and must be excluded from all exported zips.
+ */
+const META_SUBDIR_NAME = "meta";
+
 function isPathInsideWorkspace(filePath, workspacePath) {
   const resolvedFile = path.resolve(filePath);
   const resolvedWorkspace = path.resolve(workspacePath);
@@ -128,6 +135,13 @@ async function exportProjectToZip({
         if (!relative || relative.includes("..")) {
           continue;
         }
+        // Exclude any file inside a meta/ subdirectory — these are
+        // promotional assets (thumbnails, previews) and must never ship
+        // inside a game bundle.
+        const pathParts = relative.split("/");
+        if (pathParts.includes(META_SUBDIR_NAME)) {
+          continue;
+        }
         archive.file(absolute, { name: `${ASSETS_DIR_NAME}/${relative}` });
       }
     }
@@ -141,6 +155,7 @@ async function exportProjectToZip({
 
 module.exports = {
   ASSETS_DIR_NAME,
+  META_SUBDIR_NAME,
   exportProjectToZip,
   isPathInsideWorkspace,
   resolveBundledEngineDir,

@@ -497,9 +497,69 @@ function getSessionForInternal() {
   };
 }
 
+/**
+ * Attempts to refresh the current session using the stored refresh_token.
+ * Updates `_session` and re-persists on success.
+ *
+ * Intended for intra-main-process use only (e.g. `admin-ipc-utils` retrying
+ * after a 401 from the dashboard API). Never expose the return value to the
+ * renderer — it carries the raw access_token.
+ *
+ * @returns {Promise<{ access_token: string, user: object } | null>}
+ *   Updated session snapshot on success, or null on any failure.
+ */
+async function refreshSessionForInternal() {
+  if (!_session?.refresh_token) {
+    console.warn("[auth] refreshSessionForInternal: no refresh_token available.");
+    return null;
+  }
+
+  let supabase;
+  try {
+    supabase = getSupabaseClient();
+  } catch (err) {
+    console.warn("[auth] refreshSessionForInternal: Supabase not configured:", err.message);
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabase.auth.refreshSession({
+      refresh_token: _session.refresh_token,
+    });
+
+    if (error || !data?.session) {
+      console.warn(
+        "[auth] refreshSessionForInternal: refresh failed —",
+        error?.message ?? "no session returned",
+      );
+      return null;
+    }
+
+    _session = {
+      access_token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      expires_at: data.session.expires_at,
+      email: data.session.user?.email ?? null,
+      user: data.session.user,
+    };
+
+    persistSession(_session);
+    console.info("[auth] refreshSessionForInternal: token refreshed for", _session.email);
+
+    return {
+      access_token: _session.access_token,
+      user: _session.user,
+    };
+  } catch (err) {
+    console.error("[auth] refreshSessionForInternal: unexpected error:", err.message ?? err);
+    return null;
+  }
+}
+
 module.exports = {
   registerAuthIpc,
   getSessionForInternal,
+  refreshSessionForInternal,
   // Exported for unit testing only; not called externally in production.
   restoreSession,
   buildStatusPayload,

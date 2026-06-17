@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { toast } from "sonner";
+import { useEffect, useId, useState } from "react";
 import { canBrowseStoreWithoutAuth } from "@/lib/dev-store-access";
 import { supabase } from "@/lib/supabaseClient";
 import type { Tables } from "@/lib/supabaseClient";
 import { useAuthStore } from "@/store/useAuthStore";
+import { usePlatformStore } from "@/store/usePlatformStore";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 declare global {
   interface Window {
@@ -25,8 +26,6 @@ type TemplateRow = Tables<"templates">;
 
 type ManifestShape = {
   displayName?: string;
-  description?: string;
-  image_url?: string;
 };
 
 type EnrichedTemplate = TemplateRow & { isLicensed: boolean };
@@ -86,64 +85,352 @@ function SkeletonCard() {
 }
 
 // ---------------------------------------------------------------------------
-// Template card
+// Preview media tile (image or video)
 // ---------------------------------------------------------------------------
 
-function TemplateCard({ template }: { template: EnrichedTemplate }) {
-  const manifest = parseManifest(template.manifest);
-  const displayName = manifest.displayName ?? slugToTitle(template.template_slug);
-  const description = manifest.description ?? null;
-  const imageUrl = manifest.image_url ?? null;
-  const tierInfo = TIER_BADGE[template.tier] ?? TIER_BADGE.premium;
-
-  function handleUnlock() {
-    toast.info("Contact Mashed Games Studio to unlock access.", {
-      description:
-        "Reach out to your account manager or visit mashedgames.com to upgrade your plan or purchase this template.",
-      duration: 7000,
-    });
-  }
+function PreviewTile({
+  src,
+  index,
+  active,
+}: {
+  src: string;
+  index: number;
+  active: boolean;
+}) {
+  const isVideo = src.endsWith(".mp4") || src.endsWith(".webm");
+  const [loaded, setLoaded] = useState(false);
 
   return (
     <div
-      className={`flex flex-col overflow-hidden rounded-xl border bg-white shadow-sm transition-shadow hover:shadow-md ${
-        template.isLicensed ? "border-zinc-200" : "border-zinc-200"
+      className={`absolute inset-0 transition-opacity duration-300 ${
+        active ? "opacity-100" : "pointer-events-none opacity-0"
       }`}
+      aria-hidden={!active}
     >
-      {/* Thumbnail */}
-      <div className="relative h-40 w-full overflow-hidden bg-zinc-100">
-        {imageUrl ? (
-          <img
-            src={imageUrl}
-            alt={displayName}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <div className="flex flex-col items-center gap-2 text-zinc-300">
-              <svg
-                className="h-10 w-10"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
-                />
-              </svg>
-              <span className="text-xs font-mono">{template.template_slug}</span>
-            </div>
-          </div>
-        )}
+      {!loaded && (
+        <div className="absolute inset-0 animate-pulse bg-zinc-200" />
+      )}
+      {isVideo ? (
+        <video
+          src={src}
+          autoPlay
+          loop
+          muted
+          playsInline
+          className="h-full w-full object-cover"
+          onLoadedData={() => setLoaded(true)}
+          aria-label={`Preview ${index + 1}`}
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={src}
+          alt={`Preview ${index + 1}`}
+          className="h-full w-full object-cover"
+          onLoad={() => setLoaded(true)}
+          onError={() => setLoaded(true)}
+        />
+      )}
+    </div>
+  );
+}
 
-        {/* Lock overlay for unlicensed templates */}
-        {!template.isLicensed && (
-          <div className="absolute inset-0 flex items-center justify-center bg-zinc-900/25 backdrop-blur-[1px]">
-            <div className="rounded-full bg-white/20 p-2">
+// ---------------------------------------------------------------------------
+// Template detail modal
+// ---------------------------------------------------------------------------
+
+function TemplateDetailModal({
+  template,
+  atLicenseCap,
+  onClose,
+}: {
+  template: EnrichedTemplate;
+  atLicenseCap: boolean;
+  onClose: () => void;
+}) {
+  const manifest = parseManifest(template.manifest);
+  const displayName = manifest.displayName ?? slugToTitle(template.template_slug);
+  const description = template.description || null;
+  const imageUrl = template.thumbnail_url || null;
+  const previews = template.preview_urls ?? [];
+  const tierInfo = TIER_BADGE[template.tier] ?? TIER_BADGE.premium;
+  const titleId = useId();
+
+  // Carousel state
+  const allMedia = [imageUrl, ...previews].filter(Boolean) as string[];
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const goPrev = () => setActiveIndex((i) => (i > 0 ? i - 1 : allMedia.length - 1));
+  const goNext = () => setActiveIndex((i) => (i < allMedia.length - 1 ? i + 1 : 0));
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "ArrowLeft" && allMedia.length > 1) goPrev();
+      if (e.key === "ArrowRight" && allMedia.length > 1) goNext();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allMedia.length, onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center sm:p-6"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div className="absolute inset-0 bg-zinc-900/40 backdrop-blur-md" aria-hidden />
+
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="relative flex max-h-[min(90vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-[0_32px_80px_-12px_rgba(0,0,0,0.36)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Media carousel */}
+        <div className="relative h-64 w-full shrink-0 overflow-hidden bg-zinc-100 sm:h-80">
+          {allMedia.length > 0 ? (
+            <>
+              {allMedia.map((src, i) => (
+                <PreviewTile key={src} src={src} index={i} active={i === activeIndex} />
+              ))}
+              {allMedia.length > 1 ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); goPrev(); }}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white backdrop-blur-sm transition-colors hover:bg-black/60"
+                    aria-label="Previous preview"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); goNext(); }}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white backdrop-blur-sm transition-colors hover:bg-black/60"
+                    aria-label="Next preview"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                  {/* Dot indicators */}
+                  <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
+                    {allMedia.map((_, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setActiveIndex(i); }}
+                        className={`h-1.5 rounded-full transition-all ${
+                          i === activeIndex ? "w-4 bg-white" : "w-1.5 bg-white/50"
+                        }`}
+                        aria-label={`Go to preview ${i + 1}`}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <div className="flex flex-col items-center gap-2 text-zinc-300">
+                <svg
+                  className="h-12 w-12"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
+                  />
+                </svg>
+                <span className="font-mono text-xs">{template.template_slug}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Close button */}
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute right-3 top-3 rounded-full bg-black/40 p-1.5 text-white backdrop-blur-sm transition-colors hover:bg-black/60"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="p-6">
+            {/* Name + badges */}
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h2 id={titleId} className="text-xl font-semibold text-zinc-900">
+                {displayName}
+              </h2>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {template.isLicensed ? (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    Owned
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-500">
+                    Locked
+                  </span>
+                )}
+                <span
+                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${tierInfo.cls}`}
+                >
+                  {tierInfo.label}
+                </span>
+              </div>
+            </div>
+
+            {/* Description */}
+            {description ? (
+              <p className="mt-3 leading-relaxed text-sm text-zinc-600">{description}</p>
+            ) : (
+              <p className="mt-3 text-sm text-zinc-400">
+                v{template.version} · {template.template_slug}
+              </p>
+            )}
+
+            {/* Preview grid (thumbnails) for quick navigation when many previews */}
+            {allMedia.length > 1 ? (
+              <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                {allMedia.map((src, i) => (
+                  <button
+                    key={src}
+                    type="button"
+                    onClick={() => setActiveIndex(i)}
+                    className={`h-12 w-20 shrink-0 overflow-hidden rounded-lg border-2 transition-all ${
+                      i === activeIndex
+                        ? "border-zinc-900"
+                        : "border-transparent opacity-60 hover:opacity-100"
+                    }`}
+                    aria-label={`Preview ${i + 1}`}
+                  >
+                    {src.endsWith(".mp4") || src.endsWith(".webm") ? (
+                      <video
+                        src={src}
+                        className="h-full w-full object-cover"
+                        muted
+                        playsInline
+                      />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={src}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    )}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Footer CTA */}
+        <footer className="shrink-0 border-t border-zinc-100 bg-zinc-50/50 px-6 py-4">
+          {template.isLicensed ? (
+            <button
+              type="button"
+              className="w-full rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
+            >
+              Open in Engine
+            </button>
+          ) : (
+            <div
+              aria-disabled="true"
+              className="w-full cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-100 px-4 py-2.5 text-center text-sm font-medium text-zinc-400 select-none"
+              title={
+                atLicenseCap
+                  ? "Your license allows no additional templates. Contact your account manager to upgrade."
+                  : "A valid license is required for this template. Contact your account manager."
+              }
+            >
+              Upgrade Required
+            </div>
+          )}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Template card
+// ---------------------------------------------------------------------------
+
+function TemplateCard({
+  template,
+  atLicenseCap,
+}: {
+  template: EnrichedTemplate;
+  atLicenseCap: boolean;
+}) {
+  const manifest = parseManifest(template.manifest);
+  const displayName = manifest.displayName ?? slugToTitle(template.template_slug);
+  const description = template.description || null;
+  const imageUrl = template.thumbnail_url || null;
+  const tierInfo = TIER_BADGE[template.tier] ?? TIER_BADGE.premium;
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  return (
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setDetailOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") setDetailOpen(true);
+        }}
+        className={`flex cursor-pointer flex-col overflow-hidden rounded-xl border bg-white shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 ${
+          template.isLicensed ? "border-zinc-200" : "border-zinc-200 opacity-80"
+        }`}
+        aria-label={`View details for ${displayName}`}
+      >
+        {/* Thumbnail */}
+        <div className="relative h-40 w-full overflow-hidden bg-zinc-100">
+          {imageUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={imageUrl}
+              alt={displayName}
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <div className="flex flex-col items-center gap-2 text-zinc-300">
+                <svg
+                  className="h-10 w-10"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
+                  />
+                </svg>
+                <span className="text-xs font-mono">{template.template_slug}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Lock overlay */}
+          {!template.isLicensed ? (
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-zinc-900/50 backdrop-blur-[2px]">
               <svg
                 className="h-6 w-6 text-white"
                 fill="none"
@@ -158,79 +445,77 @@ function TemplateCard({ template }: { template: EnrichedTemplate }) {
                   d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
                 />
               </svg>
+              <span className="text-[11px] font-semibold text-white">
+                {atLicenseCap ? "License cap reached" : "Not licensed"}
+              </span>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Card body */}
+        <div className="flex flex-1 flex-col gap-2 p-4">
+          <div className="flex items-start justify-between gap-2">
+            <h3 className="text-sm font-semibold leading-tight text-zinc-900">
+              {displayName}
+            </h3>
+
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              {template.isLicensed ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  Owned
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500">
+                  <svg
+                    className="h-3 w-3"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                    />
+                  </svg>
+                  Locked
+                </span>
+              )}
+              <span
+                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${tierInfo.cls}`}
+              >
+                {tierInfo.label}
+              </span>
             </div>
           </div>
-        )}
-      </div>
 
-      {/* Card body */}
-      <div className="flex flex-1 flex-col gap-2 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="text-sm font-semibold leading-tight text-zinc-900">
-            {displayName}
-          </h3>
+          {description ? (
+            <p className="line-clamp-2 text-xs leading-relaxed text-zinc-500">
+              {description}
+            </p>
+          ) : (
+            <p className="text-xs text-zinc-400">v{template.version}</p>
+          )}
 
-          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-            {template.isLicensed ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                Owned
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500">
-                <svg
-                  className="h-3 w-3"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                  />
-                </svg>
-                Locked
-              </span>
-            )}
-            <span
-              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${tierInfo.cls}`}
-            >
-              {tierInfo.label}
-            </span>
+          <div className="mt-auto pt-3">
+            <div className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-center text-xs font-medium text-zinc-600">
+              View details →
+            </div>
           </div>
         </div>
-
-        {description ? (
-          <p className="line-clamp-2 text-xs leading-relaxed text-zinc-500">
-            {description}
-          </p>
-        ) : (
-          <p className="text-xs text-zinc-400">v{template.version}</p>
-        )}
-
-        <div className="mt-auto pt-3">
-          {template.isLicensed ? (
-            <button
-              type="button"
-              className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
-            >
-              Open in Engine
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={handleUnlock}
-              className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-500 focus-visible:ring-offset-2"
-            >
-              Unlock / Request Access
-            </button>
-          )}
-        </div>
       </div>
-    </div>
+
+      {detailOpen ? (
+        <TemplateDetailModal
+          template={template}
+          atLicenseCap={atLicenseCap}
+          onClose={() => setDetailOpen(false)}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -292,6 +577,8 @@ function DevPreviewBanner() {
 export function TemplateStorefront() {
   const userId = useAuthStore((s) => s.userId);
   const devStorePreview = canBrowseStoreWithoutAuth();
+  const maxTemplates = usePlatformStore((s) => s.features.maxTemplates);
+
   const [templates, setTemplates] = useState<EnrichedTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -328,7 +615,7 @@ export function TemplateStorefront() {
       const templatesResult = await supabase
         .from("templates")
         .select(
-          "id, template_slug, tier, version, manifest, published_at, is_latest, storage_key, checksum, bundle_signature, yanked",
+          "id, template_slug, tier, version, manifest, published_at, is_latest, storage_key, checksum, bundle_signature, yanked, description, tutorial, thumbnail_url, preview_urls",
         )
         .eq("is_latest", true)
         .eq("yanked", false)
@@ -472,43 +759,85 @@ export function TemplateStorefront() {
     );
   }
 
-  const owned = templates.filter((t) => t.isLicensed);
-  const available = templates.filter((t) => !t.isLicensed);
+  // Apply the platform license cap: only the first `maxTemplates` licensed
+  // templates are treated as active entitlements. Templates beyond the cap, or
+  // without a Supabase license record, are shown as strictly locked.
+  const supabaseOwned = templates.filter((t) => t.isLicensed);
+  const atLicenseCap = supabaseOwned.length >= maxTemplates;
+  const cappedOwnedIds = new Set(
+    supabaseOwned.slice(0, maxTemplates).map((t) => t.id),
+  );
+
+  const gatedTemplates = templates.map((t) => ({
+    ...t,
+    isLicensed: cappedOwnedIds.has(t.id),
+  }));
+
+  const owned = gatedTemplates.filter((t) => t.isLicensed);
+  const locked = gatedTemplates.filter((t) => !t.isLicensed);
 
   return (
     <div className="space-y-10">
       {isDevPreview && <DevPreviewBanner />}
+
+      {/* License cap notice */}
+      {atLicenseCap && maxTemplates > 0 ? (
+        <div
+          role="status"
+          className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800"
+        >
+          <svg
+            className="mt-px h-4 w-4 shrink-0 text-amber-500"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+            />
+          </svg>
+          <span>
+            <strong className="font-semibold">License cap reached</strong> — your
+            plan allows up to <strong>{maxTemplates}</strong> template
+            {maxTemplates === 1 ? "" : "s"}. Contact your account manager to
+            expand your entitlement.
+          </span>
+        </div>
+      ) : null}
+
       {owned.length > 0 && (
         <section>
           <div className="mb-4 flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-zinc-900">
-              Your Games
-            </h2>
+            <h2 className="text-sm font-semibold text-zinc-900">Your Games</h2>
             <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
               {owned.length}
             </span>
           </div>
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {owned.map((t) => (
-              <TemplateCard key={t.id} template={t} />
+              <TemplateCard key={t.id} template={t} atLicenseCap={false} />
             ))}
           </div>
         </section>
       )}
 
-      {available.length > 0 && (
+      {locked.length > 0 && (
         <section>
           <div className="mb-4 flex items-center gap-2">
             <h2 className="text-sm font-semibold text-zinc-500">
-              Available to Unlock
+              Locked / Upgrade Required
             </h2>
             <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500">
-              {available.length}
+              {locked.length}
             </span>
           </div>
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {available.map((t) => (
-              <TemplateCard key={t.id} template={t} />
+            {locked.map((t) => (
+              <TemplateCard key={t.id} template={t} atLicenseCap={atLicenseCap} />
             ))}
           </div>
         </section>

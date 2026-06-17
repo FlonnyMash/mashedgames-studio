@@ -1,6 +1,7 @@
 "use client";
 
 import { ProjectDetailsDialog } from "@/components/configurator/ProjectDetailsDialog";
+import { TemplateThumbnail } from "@/components/studio/TemplateListRow";
 import type { GameProjectManifest } from "@mashedgames/shared";
 import { MoreVertical } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -11,6 +12,8 @@ export type ProjectSummary = {
   displayName: string;
   parentTemplateId: string;
   parentVersion: string;
+  /** Inherited from the parent template's meta — read-only, never saved to project files */
+  thumbnailUrl?: string;
 };
 
 export function ProjectListRow({
@@ -48,14 +51,23 @@ export function ProjectListRow({
           <button
             type="button"
             onClick={openProject}
-            className="flex min-w-0 flex-1 items-center justify-between px-4 py-3 text-left text-sm transition-colors hover:bg-zinc-50"
+            className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-zinc-50"
           >
-            <span>
-              <span className="font-medium text-zinc-900">{displayName}</span>
+            {/* 16:9 thumbnail inherited from parent template */}
+            <TemplateThumbnail
+              src={project.thumbnailUrl}
+              alt={displayName}
+            />
+
+            <span className="min-w-0 flex-1">
+              <span className="block font-medium text-zinc-900">
+                {displayName}
+              </span>
               <span className="mt-0.5 block text-xs text-zinc-500">
                 {project.parentTemplateId} · v{project.parentVersion}
               </span>
             </span>
+
             <span className="ml-4 shrink-0 font-mono text-xs text-zinc-400">
               {project.projectId}
             </span>

@@ -2,13 +2,8 @@
 
 import { StudioToolsPanel } from "@/components/studio/StudioToolsPanel";
 import { CenterWorkspace } from "@/components/shell/CenterWorkspace";
-import {
-  FlatConfigIpcError,
-  getProjectListViaElectron,
-  loadFlatConfigViaElectron,
-  saveFlatConfigViaElectron,
-} from "@/lib/flat-config-ipc";
 import { applyAssetUploadToPreview } from "@/lib/apply-asset-upload-to-preview";
+import { useMenuActionsStore } from "@/lib/menu-actions-store";
 import { saveTemplateAssetWithFallback } from "@/lib/import-template-asset-client";
 import {
   pushConfigAssetsToPreview,
@@ -22,16 +17,16 @@ import {
   type FlatFieldDefinition,
 } from "@mashedgames/shared";
 import { StudioSidebar, useStudioConfigStore } from "@mashedgames/studio-engine";
-import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect } from "react";
+import { toast } from "sonner";
 
 export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) {
+  const router = useRouter();
   const initialTemplateId = useStudioConfigStore.getState().selectedTemplateId;
   const selectedTemplateId = useStudioConfigStore(
     (state) => state.selectedTemplateId,
   );
-  const [availableProjects, setAvailableProjects] = useState<string[]>([]);
-
-  const isDesktop = typeof window !== "undefined" && Boolean(window.electron);
 
   useEffect(() => {
     const studioState = useStudioConfigStore.getState();
@@ -55,38 +50,79 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
     return useStudioConfigStore.subscribe(syncFromStudio);
   }, []);
 
-  // Refresh the save list whenever the desktop runtime loads or the active
-  // template changes — each template owns its own isolated save slot list.
-  useEffect(() => {
-    if (!isDesktop) return;
-    getProjectListViaElectron("studio", { templateId: selectedTemplateId })
-      .then(setAvailableProjects)
-      .catch(() => setAvailableProjects([]));
-  }, [isDesktop, selectedTemplateId]);
-
-  const handleSave = useCallback(
-    async (projectName: string) => {
-      const config = useStudioConfigStore.getState().config;
-      await saveFlatConfigViaElectron(projectName, config);
-      getProjectListViaElectron("studio", { templateId: selectedTemplateId })
-        .then(setAvailableProjects)
-        .catch(() => undefined);
-    },
-    [selectedTemplateId],
-  );
-
-  const handleLoad = useCallback(async (projectName: string) => {
-    try {
-      const config = await loadFlatConfigViaElectron(projectName);
-      useStudioConfigStore.getState().hydrateConfig(config);
-    } catch (error) {
-      const message =
-        error instanceof FlatConfigIpcError || error instanceof Error
-          ? error.message
-          : "Load failed.";
-      window.alert(message);
+  /** Overwrites the active template's config.json on disk via the Next.js API. */
+  const handleSaveTemplate = useCallback(async () => {
+    const config = useStudioConfigStore.getState().config;
+    const res = await fetch(
+      `/api/templates/save-config?templateId=${encodeURIComponent(selectedTemplateId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config }),
+      },
+    );
+    const data = (await res.json()) as { ok?: boolean; error?: string };
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error ?? "Save failed.");
     }
-  }, []);
+  }, [selectedTemplateId]);
+
+  /** Saves the template then opens it in the Configurator in studio-test mode. */
+  const handleTestInConfigurator = useCallback(async () => {
+    await handleSaveTemplate();
+    router.push(
+      `/configurator?templateId=${encodeURIComponent(selectedTemplateId)}&mode=studio-test`,
+    );
+  }, [handleSaveTemplate, router, selectedTemplateId]);
+
+  /** Re-fetches the persisted config from disk and hydrates the studio store. */
+  const handleRevertTemplate = useCallback(async () => {
+    const res = await fetch(
+      `/api/templates/${encodeURIComponent(selectedTemplateId)}/config`,
+    );
+    const data = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      config?: ReturnType<typeof useStudioConfigStore.getState>["config"];
+      runtimeAssets?: Record<string, string>;
+    };
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error ?? "Revert failed.");
+    }
+    if (data.config) {
+      useStudioConfigStore.getState().hydrateConfig(data.config);
+    }
+    if (data.runtimeAssets) {
+      usePreviewBridgeStore.getState().setRuntimeAssets(data.runtimeAssets);
+      pushRuntimeAssetsToPreview();
+      pushConfigAssetsToPreview(
+        data.config ?? useStudioConfigStore.getState().config,
+      );
+    }
+    toast.info("Reverted to saved template config.");
+  }, [selectedTemplateId]);
+
+  // Register workspace actions so AppMenuBar can call them without importing studio-engine.
+  useEffect(() => {
+    useMenuActionsStore.getState().registerWorkspaceActions({
+      onSave: handleSaveTemplate,
+      onRevert: handleRevertTemplate,
+      onTestTemplate: handleTestInConfigurator,
+      onOpenFolder: async () => {
+        await fetch(
+          `/api/templates/${encodeURIComponent(selectedTemplateId)}/open-folder`,
+          { method: "POST" },
+        );
+      },
+      onOpenIde: async () => {
+        await fetch(
+          `/api/templates/${encodeURIComponent(selectedTemplateId)}/open-ide`,
+          { method: "POST" },
+        );
+      },
+    });
+    return () => useMenuActionsStore.getState().clearWorkspaceActions();
+  }, [handleSaveTemplate, handleRevertTemplate, handleTestInConfigurator, selectedTemplateId]);
 
   const handleImageFile = useCallback(
     async (file: File, field: FlatFieldDefinition) => {
@@ -154,9 +190,9 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       <StudioToolsPanel
-        availableProjects={isDesktop ? availableProjects : undefined}
-        onSave={isDesktop ? handleSave : undefined}
-        onLoad={isDesktop ? handleLoad : undefined}
+        onSave={handleSaveTemplate}
+        onRevert={handleRevertTemplate}
+        onTestInConfigurator={handleTestInConfigurator}
       />
       <CenterWorkspace
         appMode="studio"

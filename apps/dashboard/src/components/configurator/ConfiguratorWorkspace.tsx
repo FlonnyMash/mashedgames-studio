@@ -2,24 +2,27 @@
 
 import { ConfiguratorToolsShell } from "@/components/configurator/ConfiguratorToolsShell";
 import { CenterWorkspace } from "@/components/shell/CenterWorkspace";
-import {
-  FlatConfigIpcError,
-  getProjectListViaElectron,
-  loadFlatConfigViaElectron,
-  saveFlatConfigViaElectron,
-} from "@/lib/flat-config-ipc";
 import { applyAssetUploadToPreview } from "@/lib/apply-asset-upload-to-preview";
+import { saveProjectClientNow } from "@/hooks/useSaveGameProject";
 import { saveProjectAssetWithFallback } from "@/lib/import-project-asset-client";
+import { useMenuActionsStore } from "@/lib/menu-actions-store";
 import {
+  pushConfigAssetsToPreview,
   pushRuntimeAssetsToPreview,
   usePreviewBridgeStore,
 } from "@/lib/preview-bridge-store";
 import { useConfigStore } from "@/store/useConfigStore";
+import type {
+  ClientProjectPayload,
+  GameConfig,
+  GameProjectManifest,
+} from "@mashedgames/shared";
 import {
   ConfiguratorSidebar,
   useConfiguratorStore,
 } from "@mashedgames/configurator-engine";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
+import { toast } from "sonner";
 
 export function ConfiguratorWorkspace({
   suspended = false,
@@ -28,59 +31,13 @@ export function ConfiguratorWorkspace({
 }) {
   const initialTemplateId =
     useConfiguratorStore.getState().selectedTemplateId;
-  const selectedTemplateId = useConfiguratorStore(
-    (state) => state.selectedTemplateId,
-  );
 
   const projectId = useConfiguratorStore((state) => state.projectId);
   const setAssetSaveHandler = useConfiguratorStore(
     (state) => state.setAssetSaveHandler,
   );
 
-  const [availableProjects, setAvailableProjects] = useState<string[]>([]);
-
-  const isDesktop = typeof window !== "undefined" && Boolean(window.electron);
-
-  // Refresh the save list whenever the desktop runtime loads or the open
-  // project changes — saves are scoped to the current projectId only.
-  useEffect(() => {
-    if (!isDesktop || !projectId) {
-      setAvailableProjects([]);
-      return;
-    }
-    getProjectListViaElectron("configurator", { projectId })
-      .then(setAvailableProjects)
-      .catch(() => setAvailableProjects([]));
-  }, [isDesktop, projectId]);
-
-  const handleSave = useCallback(
-    async (projectName: string) => {
-      const config = useConfiguratorStore.getState().config;
-      await saveFlatConfigViaElectron(projectName, config);
-      const currentProjectId = useConfiguratorStore.getState().projectId;
-      if (!currentProjectId) return;
-      getProjectListViaElectron("configurator", {
-        projectId: currentProjectId,
-      })
-        .then(setAvailableProjects)
-        .catch(() => undefined);
-    },
-    [],
-  );
-
-  const handleLoad = useCallback(async (projectName: string) => {
-    try {
-      const config = await loadFlatConfigViaElectron(projectName);
-      useConfiguratorStore.getState().setConfig(config);
-    } catch (error) {
-      const message =
-        error instanceof FlatConfigIpcError || error instanceof Error
-          ? error.message
-          : "Load failed.";
-      window.alert(message);
-    }
-  }, []);
-
+  // Sync configurator state into the preview config store.
   useEffect(() => {
     const syncFromConfigurator = (
       state: ReturnType<typeof useConfiguratorStore.getState>,
@@ -92,6 +49,7 @@ export function ConfiguratorWorkspace({
     return useConfiguratorStore.subscribe(syncFromConfigurator);
   }, []);
 
+  // Wire asset save handler for the project.
   useEffect(() => {
     if (!projectId) {
       setAssetSaveHandler(null);
@@ -123,12 +81,86 @@ export function ConfiguratorWorkspace({
     return () => setAssetSaveHandler(null);
   }, [projectId, setAssetSaveHandler]);
 
+  // -------------------------------------------------------------------------
+  // Save
+  // -------------------------------------------------------------------------
+  const handleSaveProject = useCallback(async () => {
+    const id = useConfiguratorStore.getState().projectId;
+    if (!id) {
+      toast.error("No project loaded.");
+      return;
+    }
+    await saveProjectClientNow(id);
+    toast.success("Project saved.");
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Revert
+  // -------------------------------------------------------------------------
+  const handleRevertProject = useCallback(async () => {
+    const id = useConfiguratorStore.getState().projectId;
+    if (!id) return;
+
+    const res = await fetch(`/api/projects/${id}`);
+    const data = (await res.json()) as {
+      ok?: boolean;
+      error?: string;
+      manifest?: GameProjectManifest;
+      config?: GameConfig;
+      client?: ClientProjectPayload;
+      runtimeAssets?: Record<string, string>;
+    };
+
+    if (!res.ok || !data.ok || !data.manifest || !data.config || !data.client) {
+      throw new Error(data.error ?? "Revert failed.");
+    }
+
+    useConfiguratorStore.getState().hydrateProject({
+      manifest: data.manifest,
+      config: data.config,
+      client: data.client,
+    });
+
+    usePreviewBridgeStore
+      .getState()
+      .setRuntimeAssets(
+        data.runtimeAssets ?? data.manifest.runtimeAssets ?? {},
+      );
+    pushRuntimeAssetsToPreview();
+    pushConfigAssetsToPreview(data.client);
+
+    toast.info("Reverted to last saved state.");
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Register menu actions
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!projectId) return;
+
+    useMenuActionsStore.getState().registerWorkspaceActions({
+      onSave: handleSaveProject,
+      onRevert: handleRevertProject,
+      onOpenFolder: async () => {
+        await fetch(`/api/projects/${encodeURIComponent(projectId)}/open-folder`, {
+          method: "POST",
+        });
+      },
+      onOpenIde: async () => {
+        await fetch(`/api/projects/${encodeURIComponent(projectId)}/open-ide`, {
+          method: "POST",
+        });
+      },
+    });
+
+    return () => useMenuActionsStore.getState().clearWorkspaceActions();
+  }, [projectId, handleSaveProject, handleRevertProject]);
+
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden">
       <ConfiguratorToolsShell
-        availableProjects={isDesktop ? availableProjects : undefined}
-        onSave={isDesktop ? handleSave : undefined}
-        onLoad={isDesktop ? handleLoad : undefined}
+        onSave={handleSaveProject}
+        onRevert={handleRevertProject}
       />
       <CenterWorkspace
         appMode="configurator"

@@ -27,7 +27,7 @@ const {
   resolveBundledEngineDir,
 } = require("./export-ipc-utils");
 const { saveFlatConfig, loadFlatConfig, getProjectList } = require("./flat-config-ipc-utils");
-const { registerAuthIpc, getSessionForInternal } = require("./auth-ipc-utils");
+const { registerAuthIpc, getSessionForInternal, refreshSessionForInternal } = require("./auth-ipc-utils");
 const { registerLicenseIpc } = require("./license-ipc-utils");
 const { registerStoreIpc } = require("./store-ipc-utils");
 const { registerAdminIpc } = require("./admin-ipc-utils");
@@ -1018,7 +1018,7 @@ app.whenReady().then(async () => {
     await registerAuthIpc();
     registerLicenseIpc(getSessionForInternal);
     registerStoreIpc(getSessionForInternal);
-    registerAdminIpc(getSessionForInternal, getDashboardBaseUrl);
+    registerAdminIpc(getSessionForInternal, getDashboardBaseUrl, refreshSessionForInternal);
     registerStudioProtocol(workspacePath);
     autoMigrateLegacyProjects(getProjectsPath(workspacePath));
     const externalDashboardUrl = resolveExternalDashboardUrl();

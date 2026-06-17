@@ -145,6 +145,35 @@ export const TemplateSchemaSchema = z.object({
     .record(z.string(), ConfigFieldHintSchema)
     .optional()
     .default({}),
+
+  // ---------------------------------------------------------------------------
+  // Storefront / tutorial metadata
+  // These fields are informational only — they are never sent to the game
+  // engine. Heavy promotional assets (thumbnail, previews) are stored in the
+  // template's meta/ directory and excluded from game bundle exports.
+  // ---------------------------------------------------------------------------
+
+  /** Short marketing description shown in the Storefront and Studio list. */
+  description: z.string().optional().default(""),
+
+  /**
+   * Relative path to the thumbnail image inside the template's meta/ dir.
+   * Example: "meta/thumbnail.png"
+   */
+  thumbnail: z.string().optional().default(""),
+
+  /**
+   * Relative paths to preview media (gif / mp4 / png) inside meta/.
+   * Shown in the Storefront detail modal.
+   * Example: ["meta/previews/gameplay.gif", "meta/previews/config.mp4"]
+   */
+  previews: z.array(z.string()).optional().default([]),
+
+  /**
+   * Markdown string rendered as a help tutorial inside the Configurator.
+   * Stored in meta/template-meta.json — not in manifest.ts source.
+   */
+  tutorial: z.string().optional().default(""),
 });
 
 export type TemplateSchema = z.infer<typeof TemplateSchemaSchema>;
