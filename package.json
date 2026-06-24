@@ -27,7 +27,8 @@
     "build:desktop": "pnpm run build:pipeline",
     "build:release:client": "node scripts/build-release.mjs client",
     "build:release:studio": "node scripts/build-release.mjs studio",
-    "sync:brand": "pnpm --config.verifyDepsBeforeRun=false --filter desktop sync-branding"
+    "sync:brand": "pnpm --config.verifyDepsBeforeRun=false --filter desktop sync-branding",
+    "deploy:demo": "node scripts/deploy-demo.mjs"
   },
   "keywords": [],
   "author": "",
@@ -46,6 +47,7 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "rimraf": "^6.1.0",
-    "wait-on": "^8.0.5"
+    "wait-on": "^8.0.5",
+    "wrangler": "^4.104.0"
   }
 }

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Loader2, RefreshCw, UploadCloud } from "lucide-react";
+import { CheckCircle2, Link2, Loader2, RefreshCw, Rocket, UploadCloud } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { getAdminRefDataViaIpc, publishTemplateViaIpc } from "@/lib/auth-ipc";
 
@@ -65,9 +65,13 @@ export function PublishTemplatePanel() {
   const [tierSelections, setTierSelections] = useState<Record<string, Tier>>(
     {},
   );
+  const [demoUrls, setDemoUrls] = useState<Record<string, string>>({});
   const [templateStates, setTemplateStates] = useState<
     Record<string, TemplateState>
   >({});
+  const [deployingTemplates, setDeployingTemplates] = useState<Set<string>>(
+    new Set(),
+  );
 
   const fetchTemplates = useCallback(async () => {
     setListState({ status: "loading" });
@@ -157,7 +161,8 @@ export function PublishTemplatePanel() {
 
       if (isElectronRuntime()) {
         const tier: Tier = tierSelections[templateId] ?? "free";
-        const body = await publishTemplateViaIpc({ templateId, tier });
+        const demoUrl = demoUrls[templateId]?.trim() || undefined;
+        const body = await publishTemplateViaIpc({ templateId, tier, demoUrl });
 
         if (body !== null) {
           // IPC bridge responded — use its result regardless of success/failure.
@@ -235,6 +240,7 @@ export function PublishTemplatePanel() {
       }
 
       const tier: Tier = tierSelections[templateId] ?? "free";
+      const demoUrl = demoUrls[templateId]?.trim() || undefined;
 
       let res: Response;
       try {
@@ -244,7 +250,7 @@ export function PublishTemplatePanel() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ templateId, tier }),
+          body: JSON.stringify({ templateId, tier, demo_url: demoUrl }),
         });
       } catch {
         toast.error("Network error. Check your connection.");
@@ -298,7 +304,76 @@ export function PublishTemplatePanel() {
         }));
       }, 3000);
     },
-    [tierSelections, publishedVersions],
+    [tierSelections, demoUrls, publishedVersions],
+  );
+
+  const handleDeployDemo = useCallback(
+    async (templateId: string) => {
+      // In Electron the renderer is intentionally anonymous — auth tokens live
+      // in the main process via safeStorage, so getSession() always returns
+      // null here. The deploy-demo API route spawns a shell process which only
+      // makes sense when running locally against the Next.js dev server. Prompt
+      // the admin to use the CLI command directly instead.
+      if (isElectronRuntime()) {
+        toast.info("Use the terminal to deploy demos from the desktop app", {
+          description: `Run: pnpm deploy:demo ${templateId}`,
+          duration: 8000,
+        });
+        return;
+      }
+
+      setDeployingTemplates((prev) => new Set([...prev, templateId]));
+
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session?.access_token) {
+          toast.error("Not signed in", {
+            description: "Please sign in to the dashboard before deploying.",
+          });
+          return;
+        }
+
+        const res = await fetch("/api/admin/deploy-demo", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ templateSlug: templateId }),
+        });
+
+        const body = (await res.json()) as
+          | { ok: true; demo_url: string }
+          | { ok: false; error: string };
+
+        if (!res.ok || !body.ok) {
+          const msg = body.ok === false ? body.error : `HTTP ${res.status}`;
+          toast.error("Deploy failed", { description: msg });
+          return;
+        }
+
+        // Immediately populate the demo URL input with the live URL.
+        setDemoUrls((prev) => ({ ...prev, [templateId]: body.demo_url }));
+
+        toast.success("Demo deployed!", {
+          description: `Live at ${body.demo_url}`,
+        });
+      } catch {
+        toast.error("Network error", {
+          description: "Could not reach the deploy endpoint. Check your connection.",
+        });
+      } finally {
+        setDeployingTemplates((prev) => {
+          const next = new Set(prev);
+          next.delete(templateId);
+          return next;
+        });
+      }
+    },
+    [],
   );
 
   // ---------------------------------------------------------------------------
@@ -361,6 +436,7 @@ export function PublishTemplatePanel() {
                 tierSelections[template.id] ?? "free";
               const isPublishing = state.status === "publishing";
               const isDone = state.status === "done";
+              const isDeploying = deployingTemplates.has(template.id);
               const publishedVersion =
                 state.status === "idle" ? state.publishedVersion : null;
 
@@ -388,6 +464,55 @@ export function PublishTemplatePanel() {
                         unpublished
       </span>
                     )}
+                  </div>
+
+                  {/* Demo URL input */}
+                  <div className="mt-3">
+                    <label
+                      htmlFor={`demo-url-${template.id}`}
+                      className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400"
+                    >
+                      <Link2 className="h-3 w-3" aria-hidden />
+                      Demo URL
+                    </label>
+                    <input
+                      id={`demo-url-${template.id}`}
+                      type="url"
+                      value={demoUrls[template.id] ?? ""}
+                      onChange={(e) =>
+                        setDemoUrls((prev) => ({
+                          ...prev,
+                          [template.id]: e.target.value,
+                        }))
+                      }
+                      disabled={isPublishing || isDeploying}
+                      placeholder="https://your-demo.pages.dev"
+                      className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-700 placeholder-zinc-300 outline-none transition-colors focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 disabled:opacity-50"
+                    />
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">
+                      Hosted Cloudflare Pages URL for the playable demo iframe
+                      shown in the template storefront.
+                    </p>
+
+                    {/* Deploy to Cloudflare Pages */}
+                    <button
+                      type="button"
+                      onClick={() => handleDeployDemo(template.id)}
+                      disabled={isDeploying || isPublishing}
+                      className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isDeploying ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Building &amp; Deploying…
+                        </>
+                      ) : (
+                        <>
+                          <Rocket className="h-3.5 w-3.5" />
+                          Deploy &amp; Link Demo to Cloudflare
+                        </>
+                      )}
+                    </button>
                   </div>
 
                   {/* Tier selector + Publish button */}

@@ -24,6 +24,18 @@
   }
 }
 
+/*
+ * Iframe mode (default): transparent passthrough — fills the fixed body exactly.
+ * Standalone mode: overridden by html.standalone rules below.
+ */
+#viewport-shell {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
 #game-container {
   position: absolute;
   inset: 0;
@@ -42,4 +54,30 @@
 
 #ui-layer {
   --theme-color: var(--theme-color, #6366f1);
+}
+
+/*
+ * Standalone layout overrides — only active when main.ts adds .standalone to <html>.
+ * Overrides the @layer base body { position: fixed; inset: 0 } rule by being
+ * declared outside any layer, giving it higher specificity in the cascade.
+ */
+html.standalone body {
+  position: static;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100dvh;
+  height: auto;
+  overflow-y: auto;
+  background: #0a0a0a;
+}
+
+html.standalone #viewport-shell {
+  position: relative;
+  width: min(100vw, 450px);
+  max-width: 450px;
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6);
+  border-radius: 16px;
 }

@@ -20,6 +20,7 @@ export const runtime = "nodejs";
 type PublishRequest = {
   templateId: string;
   tier?: "free" | "premium" | "enterprise";
+  demo_url?: string;
 };
 
 type PublishResponse =
@@ -340,7 +341,25 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  const { templateId, tier = "free" } = (body ?? {}) as Partial<PublishRequest>;
+  const { templateId, tier = "free", demo_url } = (body ?? {}) as Partial<PublishRequest>;
+
+  // Validate demo_url if provided
+  if (demo_url !== undefined && demo_url !== "") {
+    try {
+      const parsed = new URL(demo_url);
+      if (parsed.protocol !== "https:") {
+        return Response.json<PublishResponse>(
+          { ok: false, error: "demo_url must use HTTPS." },
+          { status: 400 },
+        );
+      }
+    } catch {
+      return Response.json<PublishResponse>(
+        { ok: false, error: "demo_url is not a valid URL." },
+        { status: 400 },
+      );
+    }
+  }
 
   if (!templateId || typeof templateId !== "string") {
     return Response.json<PublishResponse>(
@@ -454,12 +473,16 @@ export async function POST(request: NextRequest): Promise<Response> {
     .eq("is_latest", true);
 
   // --- Build DB payload (includes the four new meta columns) ---
-  const manifest = {
+  const manifest: Record<string, unknown> = {
     id: templateId,
     displayName: templateMeta.displayName,
     version,
     publishedAt: new Date().toISOString(),
   };
+
+  if (demo_url) {
+    manifest.demo_url = demo_url;
+  }
 
   const insertPayload = {
     template_slug: templateId,

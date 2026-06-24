@@ -15,7 +15,15 @@ import {
   applyOverlayConfig,
   bindSceneLifecycleBridge,
   initOverlayShell,
+  mountStandaloneOverlays,
 } from "./overlays/overlay-shell.ts";
+import { isStandaloneMode } from "./env/standalone-mode.ts";
+
+// Apply the standalone layout class synchronously before any layout paint to
+// prevent a flash of the unconstrained full-screen layout on direct deployments.
+if (isStandaloneMode()) {
+  document.documentElement.classList.add("standalone");
+}
 
 const GAME_START_EVENT = "GAME_START";
 
@@ -28,6 +36,11 @@ function applyRuntimeConfig(config: GameConfig): void {
     activeTemplateId: normalizeTemplateId(config.activeTemplateId),
   };
   applyOverlayConfig(latestConfig);
+  if (isStandaloneMode()) {
+    import("./overlays/standalone-ui.ts").then(({ updateStandaloneConfig }) => {
+      updateStandaloneConfig(latestConfig);
+    });
+  }
   if (game) {
     getMainScene(game)?.applyConfig(latestConfig);
     game.events.emit("bridge:config-update", latestConfig);
@@ -35,6 +48,11 @@ function applyRuntimeConfig(config: GameConfig): void {
 }
 
 function getTemplateIdFromUrl(): string {
+  // Demo builds: template is pinned at build time; URL params are ignored.
+  const demoTemplate = import.meta.env.VITE_DEMO_TEMPLATE;
+  if (demoTemplate) {
+    return normalizeTemplateId(demoTemplate);
+  }
   const params = new URLSearchParams(window.location.search);
   const fromUrl = params.get("template") ?? params.get("game");
   if (fromUrl) {
@@ -67,6 +85,9 @@ async function ensureGame(): Promise<Phaser.Game> {
     applyOverlayConfig(latestConfig);
     bindSceneLifecycleBridge(game!);
     engineMessenger.sendEngineReady();
+    if (isStandaloneMode()) {
+      mountStandaloneOverlays(game!, latestConfig);
+    }
   });
 
   return game;

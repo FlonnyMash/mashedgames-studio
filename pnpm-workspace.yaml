@@ -8,3 +8,8 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
   workerd: true
+settings:
+  # pnpm deploy --prod --legacy (run during builds) leaves the workspace
+  # node_modules in a production-only state. Without this flag, the next
+  # pnpm command in a non-TTY context fails with ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY.
+  confirmModulesPurge: false

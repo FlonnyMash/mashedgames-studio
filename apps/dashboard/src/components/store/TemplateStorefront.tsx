@@ -1,70 +1,18 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import { canBrowseStoreWithoutAuth } from "@/lib/dev-store-access";
 import { supabase } from "@/lib/supabaseClient";
-import type { Tables } from "@/lib/supabaseClient";
 import { useAuthStore } from "@/store/useAuthStore";
+import { useLicenseStore } from "@/store/useLicenseStore";
 import { usePlatformStore } from "@/store/usePlatformStore";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
-
-declare global {
-  interface Window {
-    electron?: {
-      ipcRenderer: {
-        invoke(channel: string, payload?: unknown): Promise<unknown>;
-      };
-    };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type TemplateRow = Tables<"templates">;
-
-type ManifestShape = {
-  displayName?: string;
-};
-
-type EnrichedTemplate = TemplateRow & { isLicensed: boolean };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function parseManifest(manifest: unknown): ManifestShape {
-  if (manifest && typeof manifest === "object" && !Array.isArray(manifest)) {
-    return manifest as ManifestShape;
-  }
-  return {};
-}
-
-function slugToTitle(slug: string): string {
-  return slug
-    .replace(/[-_]/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
-
-// ---------------------------------------------------------------------------
-// Tier badge config
-// ---------------------------------------------------------------------------
-
-const TIER_BADGE: Record<string, { label: string; cls: string }> = {
-  free: {
-    label: "Free",
-    cls: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  },
-  premium: {
-    label: "Premium",
-    cls: "bg-amber-50 text-amber-700 border-amber-200",
-  },
-  enterprise: {
-    label: "Enterprise",
-    cls: "bg-violet-50 text-violet-700 border-violet-200",
-  },
-};
+import { StorefrontDetailsDialog } from "./StorefrontDetailsDialog";
+import {
+  parseManifest,
+  slugToTitle,
+  TIER_BADGE,
+  type EnrichedTemplate,
+} from "./storefront-types";
 
 // ---------------------------------------------------------------------------
 // Skeleton card
@@ -84,283 +32,12 @@ function SkeletonCard() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Preview media tile (image or video)
-// ---------------------------------------------------------------------------
-
-function PreviewTile({
-  src,
-  index,
-  active,
-}: {
-  src: string;
-  index: number;
-  active: boolean;
-}) {
-  const isVideo = src.endsWith(".mp4") || src.endsWith(".webm");
-  const [loaded, setLoaded] = useState(false);
-
+function SkeletonGrid({ count = 6 }: { count?: number }) {
   return (
-    <div
-      className={`absolute inset-0 transition-opacity duration-300 ${
-        active ? "opacity-100" : "pointer-events-none opacity-0"
-      }`}
-      aria-hidden={!active}
-    >
-      {!loaded && (
-        <div className="absolute inset-0 animate-pulse bg-zinc-200" />
-      )}
-      {isVideo ? (
-        <video
-          src={src}
-          autoPlay
-          loop
-          muted
-          playsInline
-          className="h-full w-full object-cover"
-          onLoadedData={() => setLoaded(true)}
-          aria-label={`Preview ${index + 1}`}
-        />
-      ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={src}
-          alt={`Preview ${index + 1}`}
-          className="h-full w-full object-cover"
-          onLoad={() => setLoaded(true)}
-          onError={() => setLoaded(true)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Template detail modal
-// ---------------------------------------------------------------------------
-
-function TemplateDetailModal({
-  template,
-  atLicenseCap,
-  onClose,
-}: {
-  template: EnrichedTemplate;
-  atLicenseCap: boolean;
-  onClose: () => void;
-}) {
-  const manifest = parseManifest(template.manifest);
-  const displayName = manifest.displayName ?? slugToTitle(template.template_slug);
-  const description = template.description || null;
-  const imageUrl = template.thumbnail_url || null;
-  const previews = template.preview_urls ?? [];
-  const tierInfo = TIER_BADGE[template.tier] ?? TIER_BADGE.premium;
-  const titleId = useId();
-
-  // Carousel state
-  const allMedia = [imageUrl, ...previews].filter(Boolean) as string[];
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  const goPrev = () => setActiveIndex((i) => (i > 0 ? i - 1 : allMedia.length - 1));
-  const goNext = () => setActiveIndex((i) => (i < allMedia.length - 1 ? i + 1 : 0));
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft" && allMedia.length > 1) goPrev();
-      if (e.key === "ArrowRight" && allMedia.length > 1) goNext();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allMedia.length, onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center p-4 sm:items-center sm:p-6"
-      role="presentation"
-      onClick={onClose}
-    >
-      <div className="absolute inset-0 bg-zinc-900/40 backdrop-blur-md" aria-hidden />
-
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="relative flex max-h-[min(90vh,720px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-zinc-200/80 bg-white shadow-[0_32px_80px_-12px_rgba(0,0,0,0.36)]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Media carousel */}
-        <div className="relative h-64 w-full shrink-0 overflow-hidden bg-zinc-100 sm:h-80">
-          {allMedia.length > 0 ? (
-            <>
-              {allMedia.map((src, i) => (
-                <PreviewTile key={src} src={src} index={i} active={i === activeIndex} />
-              ))}
-              {allMedia.length > 1 ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); goPrev(); }}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white backdrop-blur-sm transition-colors hover:bg-black/60"
-                    aria-label="Previous preview"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); goNext(); }}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white backdrop-blur-sm transition-colors hover:bg-black/60"
-                    aria-label="Next preview"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                  {/* Dot indicators */}
-                  <div className="absolute bottom-3 left-1/2 flex -translate-x-1/2 gap-1.5">
-                    {allMedia.map((_, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setActiveIndex(i); }}
-                        className={`h-1.5 rounded-full transition-all ${
-                          i === activeIndex ? "w-4 bg-white" : "w-1.5 bg-white/50"
-                        }`}
-                        aria-label={`Go to preview ${i + 1}`}
-                      />
-                    ))}
-                  </div>
-                </>
-              ) : null}
-            </>
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <div className="flex flex-col items-center gap-2 text-zinc-300">
-                <svg
-                  className="h-12 w-12"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
-                  />
-                </svg>
-                <span className="font-mono text-xs">{template.template_slug}</span>
-              </div>
-            </div>
-          )}
-
-          {/* Close button */}
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute right-3 top-3 rounded-full bg-black/40 p-1.5 text-white backdrop-blur-sm transition-colors hover:bg-black/60"
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="p-6">
-            {/* Name + badges */}
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <h2 id={titleId} className="text-xl font-semibold text-zinc-900">
-                {displayName}
-              </h2>
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                {template.isLicensed ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    Owned
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-0.5 text-xs font-medium text-zinc-500">
-                    Locked
-                  </span>
-                )}
-                <span
-                  className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${tierInfo.cls}`}
-                >
-                  {tierInfo.label}
-                </span>
-              </div>
-            </div>
-
-            {/* Description */}
-            {description ? (
-              <p className="mt-3 leading-relaxed text-sm text-zinc-600">{description}</p>
-            ) : (
-              <p className="mt-3 text-sm text-zinc-400">
-                v{template.version} · {template.template_slug}
-              </p>
-            )}
-
-            {/* Preview grid (thumbnails) for quick navigation when many previews */}
-            {allMedia.length > 1 ? (
-              <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-                {allMedia.map((src, i) => (
-                  <button
-                    key={src}
-                    type="button"
-                    onClick={() => setActiveIndex(i)}
-                    className={`h-12 w-20 shrink-0 overflow-hidden rounded-lg border-2 transition-all ${
-                      i === activeIndex
-                        ? "border-zinc-900"
-                        : "border-transparent opacity-60 hover:opacity-100"
-                    }`}
-                    aria-label={`Preview ${i + 1}`}
-                  >
-                    {src.endsWith(".mp4") || src.endsWith(".webm") ? (
-                      <video
-                        src={src}
-                        className="h-full w-full object-cover"
-                        muted
-                        playsInline
-                      />
-                    ) : (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={src}
-                        alt=""
-                        className="h-full w-full object-cover"
-                      />
-                    )}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        </div>
-
-        {/* Footer CTA */}
-        <footer className="shrink-0 border-t border-zinc-100 bg-zinc-50/50 px-6 py-4">
-          {template.isLicensed ? (
-            <button
-              type="button"
-              className="w-full rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
-            >
-              Open in Engine
-            </button>
-          ) : (
-            <div
-              aria-disabled="true"
-              className="w-full cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-100 px-4 py-2.5 text-center text-sm font-medium text-zinc-400 select-none"
-              title={
-                atLicenseCap
-                  ? "Your license allows no additional templates. Contact your account manager to upgrade."
-                  : "A valid license is required for this template. Contact your account manager."
-              }
-            >
-              Upgrade Required
-            </div>
-          )}
-        </footer>
-      </div>
+    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: count }).map((_, i) => (
+        <SkeletonCard key={i} />
+      ))}
     </div>
   );
 }
@@ -428,7 +105,7 @@ function TemplateCard({
             </div>
           )}
 
-          {/* Lock overlay */}
+          {/* Lock overlay for unlicensed templates */}
           {!template.isLicensed ? (
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-zinc-900/50 backdrop-blur-[2px]">
               <svg
@@ -509,7 +186,7 @@ function TemplateCard({
       </div>
 
       {detailOpen ? (
-        <TemplateDetailModal
+        <StorefrontDetailsDialog
           template={template}
           atLicenseCap={atLicenseCap}
           onClose={() => setDetailOpen(false)}
@@ -520,17 +197,7 @@ function TemplateCard({
 }
 
 // ---------------------------------------------------------------------------
-// Main storefront component
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
-// Dev-preview banner (DCE-eligible)
-//
-// This component is only included in the bundle when NODE_ENV !== "production"
-// OR when the Electron dev-preview flag is active at runtime.  In a standard
-// Next.js production build webpack replaces process.env.NODE_ENV with the
-// literal "production", making the entire branch statically false and
-// eligible for dead-code elimination.
+// Dev-preview banner (DCE-eligible in production builds)
 // ---------------------------------------------------------------------------
 
 function DevPreviewBanner() {
@@ -574,10 +241,22 @@ function DevPreviewBanner() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Main storefront component
+// ---------------------------------------------------------------------------
+
 export function TemplateStorefront() {
   const userId = useAuthStore((s) => s.userId);
+  // Guard against the brief window where AuthGuard is still resolving the
+  // initial session.  Without this, `userId` is null → we'd show "Sign in"
+  // before auth has finished, causing a hydration flash.
+  const authIsLoading = useAuthStore((s) => s.isLoading);
+
   const devStorePreview = canBrowseStoreWithoutAuth();
   const maxTemplates = usePlatformStore((s) => s.features.maxTemplates);
+
+  const fetchLicenses = useLicenseStore((s) => s.fetchLicenses);
+  const licensedTemplateIds = useLicenseStore((s) => s.licensedTemplateIds);
 
   const [templates, setTemplates] = useState<EnrichedTemplate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -612,7 +291,7 @@ export function TemplateStorefront() {
     }
 
     async function loadTemplatesCatalog() {
-      const templatesResult = await supabase
+      const { data, error: err } = await supabase
         .from("templates")
         .select(
           "id, template_slug, tier, version, manifest, published_at, is_latest, storage_key, checksum, bundle_signature, yanked, description, tutorial, thumbnail_url, preview_urls",
@@ -621,48 +300,8 @@ export function TemplateStorefront() {
         .eq("yanked", false)
         .order("published_at", { ascending: false });
 
-      if (templatesResult.error) {
-        throw templatesResult.error;
-      }
-
-      return templatesResult.data ?? [];
-    }
-
-    async function loadLicensedTemplateIds(activeUserId: string) {
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .select("organization_id")
-        .eq("id", activeUserId)
-        .maybeSingle();
-
-      if (profileError) {
-        throw profileError;
-      }
-
-      const organizationId = profile?.organization_id ?? null;
-      if (!organizationId) {
-        return new Set<string>();
-      }
-
-      const { data: licenses, error: licensesError } = await supabase
-        .from("licenses")
-        .select("template_id, valid_until")
-        .eq("organization_id", organizationId);
-
-      if (licensesError) {
-        throw licensesError;
-      }
-
-      const now = new Date();
-      return new Set(
-        (licenses ?? [])
-          .filter(
-            (license) =>
-              license.valid_until === null ||
-              new Date(license.valid_until) > now,
-          )
-          .map((license) => license.template_id),
-      );
+      if (err) throw err;
+      return data ?? [];
     }
 
     async function load() {
@@ -681,15 +320,17 @@ export function TemplateStorefront() {
           enriched = ipcResult.templates;
           devPreview = ipcResult.devPreview;
         } else {
-          // Web: renderer has a full browser session, query Supabase directly.
-          const catalog = await loadTemplatesCatalog();
-          const activeLicensedIds = userId
-            ? await loadLicensedTemplateIds(userId)
-            : new Set<string>();
+          // Web: fetch templates and licenses in parallel.
+          const [catalog] = await Promise.all([
+            loadTemplatesCatalog(),
+            userId ? fetchLicenses(userId) : Promise.resolve(),
+          ]);
+
+          const ids = useLicenseStore.getState().licensedTemplateIds;
 
           enriched = catalog.map((template) => ({
             ...template,
-            isLicensed: activeLicensedIds.has(template.id),
+            isLicensed: ids.has(template.id),
           }));
         }
 
@@ -712,17 +353,11 @@ export function TemplateStorefront() {
     return () => {
       cancelled = true;
     };
-  }, [devStorePreview, userId]);
+  }, [devStorePreview, userId, fetchLicenses]);
 
-  // --- Loading skeleton ---
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <SkeletonCard key={i} />
-        ))}
-      </div>
-    );
+  // --- Loading skeleton — covers both auth resolution and data fetch ---
+  if (loading || authIsLoading) {
+    return <SkeletonGrid count={6} />;
   }
 
   // --- Error state ---
@@ -744,8 +379,15 @@ export function TemplateStorefront() {
     );
   }
 
+  // Merge live store state into the template list so that optimistic `addLicense`
+  // calls from inside StorefrontDetailsDialog reflect immediately on the grid.
+  const liveEnriched = templates.map((t) => ({
+    ...t,
+    isLicensed: t.isLicensed || licensedTemplateIds.has(t.id),
+  }));
+
   // --- Empty state ---
-  if (templates.length === 0) {
+  if (liveEnriched.length === 0) {
     return (
       <div className="space-y-4">
         {isDevPreview && <DevPreviewBanner />}
@@ -760,15 +402,14 @@ export function TemplateStorefront() {
   }
 
   // Apply the platform license cap: only the first `maxTemplates` licensed
-  // templates are treated as active entitlements. Templates beyond the cap, or
-  // without a Supabase license record, are shown as strictly locked.
-  const supabaseOwned = templates.filter((t) => t.isLicensed);
+  // templates count as active entitlements.
+  const supabaseOwned = liveEnriched.filter((t) => t.isLicensed);
   const atLicenseCap = supabaseOwned.length >= maxTemplates;
   const cappedOwnedIds = new Set(
     supabaseOwned.slice(0, maxTemplates).map((t) => t.id),
   );
 
-  const gatedTemplates = templates.map((t) => ({
+  const gatedTemplates = liveEnriched.map((t) => ({
     ...t,
     isLicensed: cappedOwnedIds.has(t.id),
   }));

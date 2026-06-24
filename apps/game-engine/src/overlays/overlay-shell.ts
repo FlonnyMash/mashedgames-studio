@@ -6,6 +6,7 @@ import {
 import type { Game } from "phaser";
 import { engineMessenger } from "../bridge/messenger.ts";
 
+
 const LIFECYCLE_BRIDGE_KEY = "lifecycleBridgeBound";
 
 let overlayRoot: HTMLElement | null = null;
@@ -38,6 +39,18 @@ export function applyOverlayConfig(config: GameConfig): void {
 
 function forwardLifecycleEvent(payload: GameLifecycleEventPayload): void {
   engineMessenger.sendGameLifecycleEvent(payload);
+}
+
+/**
+ * Mounts the standalone vanilla-HTML overlays into #ui-layer.
+ * Uses a dynamic import so standalone-ui.ts is excluded from the iframe bundle
+ * when this code path is never reached.
+ * Must only be called when isStandaloneMode() returns true.
+ */
+export function mountStandaloneOverlays(game: Game, config: GameConfig): void {
+  void import("./standalone-ui.ts").then(({ initStandaloneUI }) => {
+    initStandaloneUI(getOverlayRoot(), game, config);
+  });
 }
 
 /**

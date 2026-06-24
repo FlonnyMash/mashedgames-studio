@@ -25,6 +25,13 @@ const baseEnv = {
   NEXT_PUBLIC_MASHED_DEV_STORE_PREVIEW: "1",
 };
 
+// pnpm deploy --prod (release builds) can leave electron's postinstall in a
+// broken state — the zip downloads but extract-zip silently fails on Node 24.
+const electronBootstrapExitCode = run("node", ["scripts/ensure-electron-binary.mjs"], baseEnv);
+if (electronBootstrapExitCode !== 0) {
+  process.exit(electronBootstrapExitCode);
+}
+
 // Phase 1 bootstrap: compile/check local workspace packages before app startup.
 const packageBootstrapExitCode = run("pnpm", ["run", "build:packages"], baseEnv);
 if (packageBootstrapExitCode !== 0) {

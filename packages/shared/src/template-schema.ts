@@ -179,6 +179,15 @@ export const TemplateSchemaSchema = z.object({
    * Leave absent in manifest.ts — populated from meta/template-meta.json.
    */
   tutorial: z.string().optional(),
+
+  /**
+   * Optional URL for an embeddable live demo of this template.
+   * Rendered as a sandboxed <iframe> in the Storefront details dialog.
+   * Leave absent in manifest.ts — populated from meta/template-meta.json
+   * or set directly by the publish pipeline.
+   * Example: "https://demos.mashedgames.com/catch-game"
+   */
+  demo_url: z.string().url().optional(),
 });
 
 export type TemplateSchema = z.infer<typeof TemplateSchemaSchema>;

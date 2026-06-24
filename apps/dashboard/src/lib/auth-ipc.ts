@@ -174,6 +174,7 @@ export async function getAdminRefDataViaIpc(): Promise<AdminRefDataResult | null
 export async function publishTemplateViaIpc(payload: {
   templateId: string;
   tier: "free" | "premium" | "enterprise";
+  demoUrl?: string;
 }): Promise<AdminPublishTemplateResult | null> {
   const electron = getElectron();
   if (!electron) return null;

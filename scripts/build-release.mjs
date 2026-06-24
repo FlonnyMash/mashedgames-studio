@@ -133,4 +133,17 @@ if (installExitCode !== 0) {
 
 const result = run("pnpm", ["run", "build:pipeline"], baseEnv);
 
+// ── Workspace restore ─────────────────────────────────────────────────────────
+// `pnpm deploy --prod --legacy` (inside materialize-deps.mjs) leaves the
+// workspace node_modules in a production-only state.  Restore full devDeps
+// so subsequent `pnpm dev` / `pnpm dev:studio` commands work immediately
+// after a build without requiring a manual `pnpm install`.
+console.log("[build-release] restoring workspace devDependencies...");
+run("pnpm", ["install", "--prod=false", "--yes"], baseEnv);
+
+// electron's stock install.js uses extract-zip which can silently fail on
+// Node 24 after a prod deploy — verify and repair the binary before exit.
+console.log("[build-release] ensuring Electron binary is installed...");
+run("node", ["scripts/ensure-electron-binary.mjs"], baseEnv);
+
 process.exit(result);
