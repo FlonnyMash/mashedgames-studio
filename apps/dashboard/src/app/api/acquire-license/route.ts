@@ -1,8 +1,12 @@
-import { createClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
-import type { Database } from "@/types/database.types";
+import {
+  createServiceRoleClient,
+  extractBearerToken,
+  loadSupabaseRuntimeEnv,
+  verifyAuthenticatedCaller,
+} from "@/lib/supabase-auth";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 // ---------------------------------------------------------------------------
 // Input validation
@@ -35,90 +39,15 @@ function validatePayload(body: unknown): AcquirePayload | { error: string } {
 }
 
 // ---------------------------------------------------------------------------
-// Authorization: verify bearer token; b2b_user and studio_admin both allowed
-// ---------------------------------------------------------------------------
-
-type VerifiedCaller = {
-  userId: string;
-  orgId: string;
-  role: "studio_admin" | "b2b_user";
-};
-
-async function verifyCaller(
-  bearerToken: string,
-  supabaseUrl: string,
-  anonKey: string,
-): Promise<VerifiedCaller | { error: string; status: number }> {
-  // Authenticate using the caller's own JWT so profile RLS applies.
-  const userClient = createClient<Database>(supabaseUrl, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${bearerToken}` } },
-  });
-
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-
-  if (userError || !userData?.user) {
-    return { error: "Invalid or expired token.", status: 401 };
-  }
-
-  const userId = userData.user.id;
-
-  const { data: profile, error: profileError } = await userClient
-    .from("profiles")
-    .select("role, organization_id")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (profileError) {
-    console.error("[acquire-license] Profile lookup error:", {
-      userId,
-      code: profileError.code,
-      message: profileError.message,
-    });
-    return { error: "Profile lookup failed.", status: 403 };
-  }
-
-  if (!profile) {
-    return { error: "User profile not found.", status: 403 };
-  }
-
-  if (profile.role !== "studio_admin" && profile.role !== "b2b_user") {
-    return { error: "Forbidden: authenticated user role required.", status: 403 };
-  }
-
-  const orgId = profile.organization_id;
-  if (!orgId) {
-    return { error: "User is not associated with an organization.", status: 403 };
-  }
-
-  return { userId, orgId, role: profile.role };
-}
-
-// ---------------------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest) {
-  // --- Environment guard ---
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const loaded = loadSupabaseRuntimeEnv();
+  if (!loaded.ok) return loaded.response;
+  const env = loaded.env;
 
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
-    console.error(
-      "[acquire-license] Missing required environment variables.",
-    );
-    return Response.json(
-      { ok: false, error: "Server misconfiguration." },
-      { status: 500 },
-    );
-  }
-
-  // --- Authorization ---
-  const authHeader = request.headers.get("Authorization");
-  const bearerToken =
-    authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-
+  const bearerToken = extractBearerToken(request.headers.get("Authorization"));
   if (!bearerToken) {
     return Response.json(
       { ok: false, error: "Authorization header with Bearer token required." },
@@ -126,8 +55,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const caller = await verifyCaller(bearerToken, supabaseUrl, anonKey);
-
+  const caller = await verifyAuthenticatedCaller(bearerToken, env);
   if ("error" in caller) {
     return Response.json(
       { ok: false, error: caller.error },
@@ -135,7 +63,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // --- Input validation ---
   let body: unknown;
   try {
     body = await request.json();
@@ -153,7 +80,6 @@ export async function POST(request: NextRequest) {
 
   const { template_id, org_id } = validated;
 
-  // Prevent a caller from acquiring a license for a different org than their own.
   if (caller.orgId !== org_id) {
     return Response.json(
       { ok: false, error: "org_id does not match the caller's organization." },
@@ -161,12 +87,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Service-role client is created locally — bypasses RLS for read/write ops.
-  const serviceClient = createClient<Database>(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const serviceClient = createServiceRoleClient(env);
 
-  // --- Verify template exists and is free-tier ---
   const { data: template, error: templateError } = await serviceClient
     .from("templates")
     .select("id, tier, yanked, is_latest")
@@ -206,7 +128,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // --- Idempotency: return existing license if already active ---
   const now = new Date().toISOString();
   const { data: existing, error: existingError } = await serviceClient
     .from("licenses")
@@ -228,7 +149,6 @@ export async function POST(request: NextRequest) {
       existing.valid_until === null || existing.valid_until > now;
 
     if (isActive) {
-      // Already licensed — return the existing record (idempotent success).
       return Response.json(
         { ok: true, licenseId: existing.id, alreadyOwned: true },
         { status: 200 },
@@ -236,7 +156,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // --- Insert license ---
   const { data: inserted, error: insertError } = await serviceClient
     .from("licenses")
     .insert({
@@ -249,7 +168,6 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (insertError) {
-    // Concurrent insert race — treat as idempotent success by re-querying.
     if (insertError.code === "23505") {
       const { data: raced } = await serviceClient
         .from("licenses")

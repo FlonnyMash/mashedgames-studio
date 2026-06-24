@@ -4,6 +4,12 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import type { NextRequest } from "next/server";
 import type { Database } from "@/types/database.types";
+import {
+  createServiceRoleClient,
+  extractBearerToken,
+  loadSupabaseRuntimeEnv,
+  verifyStudioAdmin,
+} from "@/lib/supabase-auth";
 import { listTemplateOverviewFromDisk } from "@/lib/template-studio-meta";
 import { gameEngineRoot } from "@/lib/template-library-root";
 import {
@@ -34,41 +40,6 @@ const BUNDLE_BUCKET = "template-bundles";
 
 /** Bucket for public promotional assets (thumbnail, previews). Must be public. */
 const META_ASSETS_BUCKET = "template-assets";
-
-// ---------------------------------------------------------------------------
-// Auth — same pattern as /api/admin/ref-data
-// ---------------------------------------------------------------------------
-
-async function verifyStudioAdmin(
-  bearerToken: string,
-  supabaseUrl: string,
-  anonKey: string,
-): Promise<{ userId: string } | { error: string; status: number }> {
-  const userClient = createClient<Database>(supabaseUrl, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${bearerToken}` } },
-  });
-
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-  if (userError || !userData?.user) {
-    return { error: "Invalid or expired token.", status: 401 };
-  }
-
-  const { data: profile, error: profileError } = await userClient
-    .from("profiles")
-    .select("role")
-    .eq("id", userData.user.id)
-    .maybeSingle();
-
-  if (profileError || !profile) {
-    return { error: "User profile not found.", status: 403 };
-  }
-  if (profile.role !== "studio_admin") {
-    return { error: "Forbidden: studio_admin role required.", status: 403 };
-  }
-
-  return { userId: userData.user.id };
-}
 
 // ---------------------------------------------------------------------------
 // Version helpers
@@ -298,23 +269,16 @@ async function resolveMetaPublicUrls(
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest): Promise<Response> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
+  const loaded = loadSupabaseRuntimeEnv();
+  if (!loaded.ok) {
     return Response.json<PublishResponse>(
       { ok: false, error: "Server misconfiguration." },
       { status: 500 },
     );
   }
+  const env = loaded.env;
 
-  // --- Auth ---
-  const authHeader = request.headers.get("Authorization");
-  const bearerToken = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7)
-    : null;
-
+  const bearerToken = extractBearerToken(request.headers.get("Authorization"));
   if (!bearerToken) {
     return Response.json<PublishResponse>(
       { ok: false, error: "Authorization header with Bearer token required." },
@@ -322,7 +286,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  const authResult = await verifyStudioAdmin(bearerToken, supabaseUrl, anonKey);
+  const authResult = await verifyStudioAdmin(bearerToken, env);
   if ("error" in authResult) {
     return Response.json<PublishResponse>(
       { ok: false, error: authResult.error },
@@ -397,14 +361,12 @@ export async function POST(request: NextRequest): Promise<Response> {
   const bundleBuffer = bundleResult.buffer;
 
   const checksum = createHash("sha256").update(bundleBuffer).digest("hex");
-  const bundleSignature = createHmac("sha256", serviceRoleKey)
+  const bundleSignature = createHmac("sha256", env.SUPABASE_SERVICE_ROLE_KEY)
     .update(bundleBuffer)
     .digest("hex");
 
   // --- Service-role client for DB + Storage ---
-  const serviceClient = createClient<Database>(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const serviceClient = createServiceRoleClient(env);
 
   // --- Determine version ---
   const version = await resolveNextVersion(serviceClient, templateId);

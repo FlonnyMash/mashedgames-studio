@@ -1,9 +1,13 @@
-import { createClient } from "@supabase/supabase-js";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { z } from "zod";
 import type { NextRequest } from "next/server";
-import type { Database } from "@/types/database.types";
+import {
+  createServiceRoleClient,
+  extractBearerToken,
+  loadSupabaseRuntimeEnv,
+  verifyStudioAdmin,
+} from "@/lib/supabase-auth";
 
 export const runtime = "nodejs";
 
@@ -22,51 +26,6 @@ export const maxDuration = 300;
 type DeployResponse =
   | { ok: true; demo_url: string }
   | { ok: false; error: string };
-
-// ---------------------------------------------------------------------------
-// Auth — identical pattern to /api/admin/ref-data and /api/admin/publish-template
-// ---------------------------------------------------------------------------
-
-async function verifyStudioAdmin(
-  bearerToken: string,
-  supabaseUrl: string,
-  anonKey: string,
-): Promise<{ userId: string } | { error: string; status: number }> {
-  const userClient = createClient<Database>(supabaseUrl, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${bearerToken}` } },
-  });
-
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-  if (userError || !userData?.user) {
-    return { error: "Invalid or expired token.", status: 401 };
-  }
-
-  const { data: profile, error: profileError } = await userClient
-    .from("profiles")
-    .select("role")
-    .eq("id", userData.user.id)
-    .maybeSingle();
-
-  if (profileError) {
-    console.error("[deploy-demo] Profile lookup error:", {
-      userId: userData.user.id,
-      code: profileError.code,
-      message: profileError.message,
-    });
-    return { error: "Profile lookup failed.", status: 403 };
-  }
-
-  if (!profile) {
-    return { error: "User profile not found.", status: 403 };
-  }
-
-  if (profile.role !== "studio_admin") {
-    return { error: "Forbidden: studio_admin role required.", status: 403 };
-  }
-
-  return { userId: userData.user.id };
-}
 
 // ---------------------------------------------------------------------------
 // Input schema
@@ -182,23 +141,16 @@ function extractDeployedUrl(stdout: string, templateSlug: string): string {
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest): Promise<Response> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
+  const loaded = loadSupabaseRuntimeEnv();
+  if (!loaded.ok) {
     return Response.json<DeployResponse>(
       { ok: false, error: "Server misconfiguration: missing Supabase environment variables." },
       { status: 500 },
     );
   }
+  const env = loaded.env;
 
-  // --- 1. Auth ---
-  const authHeader = request.headers.get("Authorization");
-  const bearerToken = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7)
-    : null;
-
+  const bearerToken = extractBearerToken(request.headers.get("Authorization"));
   if (!bearerToken) {
     return Response.json<DeployResponse>(
       { ok: false, error: "Authorization header with Bearer token required." },
@@ -206,7 +158,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  const authResult = await verifyStudioAdmin(bearerToken, supabaseUrl, anonKey);
+  const authResult = await verifyStudioAdmin(bearerToken, env);
   if ("error" in authResult) {
     return Response.json<DeployResponse>(
       { ok: false, error: authResult.error },
@@ -237,9 +189,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const { templateSlug } = parsed.data;
 
   // --- 3. Verify template exists in DB (double-check before running anything) ---
-  const serviceClient = createClient<Database>(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const serviceClient = createServiceRoleClient(env);
 
   const { data: tpl, error: lookupError } = await serviceClient
     .from("templates")

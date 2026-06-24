@@ -155,6 +155,23 @@ export {
 } from "./project-utils";
 
 export {
+  SupabaseAuthPrivateKeyP256Schema,
+  SupabaseAuthPublicKeyP256Schema,
+  SupabasePublishableKeySchema,
+  SupabaseSecretKeySchema,
+  usesLegacySupabaseApiKeys,
+  SupabasePublicEnvSchema,
+  SupabaseRuntimeEnvSchema,
+  SupabaseServerEnvSchema,
+  parseSupabasePublicEnv,
+  parseSupabaseRuntimeEnv,
+  parseSupabaseServerEnv,
+  type SupabasePublicEnv,
+  type SupabaseRuntimeEnv,
+  type SupabaseServerEnv,
+} from "./env-schema";
+
+export {
   APP_DISPLAY_NAME,
   BRAND_LOGO_FILENAME,
   BRAND_LOGO_URL_PATH,

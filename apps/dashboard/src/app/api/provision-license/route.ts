@@ -1,8 +1,13 @@
-import { createClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
-import type { Database } from "@/types/database.types";
+import type { SupabaseRuntimeEnv } from "@/lib/supabase-auth";
+import {
+  createServiceRoleClient,
+  extractBearerToken,
+  loadSupabaseRuntimeEnv,
+  verifyStudioAdmin,
+} from "@/lib/supabase-auth";
 
-export const runtime = "nodejs";
+export const runtime = "edge";
 
 // ---------------------------------------------------------------------------
 // Input validation
@@ -68,94 +73,17 @@ function validatePayload(body: unknown): ProvisionPayload | { error: string } {
 }
 
 // ---------------------------------------------------------------------------
-// Authorization: verify bearer token and confirm studio_admin role
-// ---------------------------------------------------------------------------
-
-/**
- * Verifies the incoming JWT against Supabase Auth (using the anon client),
- * then checks the caller's profile role in the database (using the service-role
- * client to bypass RLS for the lookup).
- *
- * Returns the verified user ID on success, or an error string on failure.
- * Both clients are created locally — neither is ever assigned to a module-
- * level variable.
- */
-async function verifyStudioAdmin(
-  bearerToken: string,
-  supabaseUrl: string,
-  anonKey: string,
-): Promise<{ userId: string } | { error: string; status: number }> {
-  // Use the caller's own JWT as the session so the profile lookup goes through
-  // the existing RLS policy ("users can SELECT their own row"). The service-role
-  // key has no GRANT on public.profiles (42501), so we avoid it here.
-  const userClient = createClient<Database>(supabaseUrl, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { headers: { Authorization: `Bearer ${bearerToken}` } },
-  });
-
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-
-  if (userError || !userData?.user) {
-    return { error: "Invalid or expired token.", status: 401 };
-  }
-
-  const userId = userData.user.id;
-
-  const { data: profile, error: profileError } = await userClient
-    .from("profiles")
-    .select("role")
-    .eq("id", userId)
-    .maybeSingle();
-
-  if (profileError) {
-    console.error("[provision-license] Profile lookup error:", {
-      userId,
-      code: profileError.code,
-      message: profileError.message,
-    });
-    return { error: "Profile lookup failed.", status: 403 };
-  }
-
-  if (!profile) {
-    return { error: "User profile not found.", status: 403 };
-  }
-
-  if (profile.role !== "studio_admin") {
-    return { error: "Forbidden: studio_admin role required.", status: 403 };
-  }
-
-  return { userId };
-}
-
-// ---------------------------------------------------------------------------
 // Core provisioning logic
 // ---------------------------------------------------------------------------
 
-/**
- * Inserts a license row into public.licenses using a service-role client.
- *
- * The service-role client is created inside this function and scoped to
- * this call — it is never held in a module-level or closure variable.
- *
- * @param org_id        - The organisation ID (e.g. 'org_acme')
- * @param template_id   - UUID of the template row in public.templates
- * @param max_projects  - Per-org project cap; -1 = unlimited
- * @param valid_until   - ISO 8601 expiry date, or null for perpetual
- * @param supabaseUrl   - Injected from env (avoids global module state)
- * @param serviceRoleKey - Injected from env (avoids global module state)
- */
 async function provisionOrgLicense(
   org_id: string,
   template_id: string,
   max_projects: number,
   valid_until: string | null,
-  supabaseUrl: string,
-  serviceRoleKey: string,
+  env: SupabaseRuntimeEnv,
 ): Promise<{ ok: true; licenseId: string } | { ok: false; error: string }> {
-  // Service-role client is created locally — bypasses RLS for the insert.
-  const serviceClient = createClient<Database>(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+  const serviceClient = createServiceRoleClient(env);
 
   const { data, error } = await serviceClient
     .from("licenses")
@@ -169,14 +97,12 @@ async function provisionOrgLicense(
     .single();
 
   if (error) {
-    // Unique constraint violation: license already exists for this org+template.
     if (error.code === "23505") {
       return {
         ok: false,
         error: `License for org '${org_id}' and template '${template_id}' already exists.`,
       };
     }
-    // FK violation: org or template ID does not exist in the database.
     if (error.code === "23503") {
       return {
         ok: false,
@@ -194,28 +120,11 @@ async function provisionOrgLicense(
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest) {
-  // --- Environment guard ---
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const loaded = loadSupabaseRuntimeEnv();
+  if (!loaded.ok) return loaded.response;
+  const env = loaded.env;
 
-  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
-    console.error(
-      "[provision-license] Missing required environment variables. " +
-        "NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, and " +
-        "SUPABASE_SERVICE_ROLE_KEY must all be set.",
-    );
-    return Response.json(
-      { ok: false, error: "Server misconfiguration." },
-      { status: 500 },
-    );
-  }
-
-  // --- Authorization ---
-  const authHeader = request.headers.get("Authorization");
-  const bearerToken =
-    authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-
+  const bearerToken = extractBearerToken(request.headers.get("Authorization"));
   if (!bearerToken) {
     return Response.json(
       { ok: false, error: "Authorization header with Bearer token required." },
@@ -223,8 +132,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const authResult = await verifyStudioAdmin(bearerToken, supabaseUrl, anonKey);
-
+  const authResult = await verifyStudioAdmin(bearerToken, env);
   if ("error" in authResult) {
     return Response.json(
       { ok: false, error: authResult.error },
@@ -232,7 +140,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // --- Input validation ---
   let body: unknown;
   try {
     body = await request.json();
@@ -250,18 +157,15 @@ export async function POST(request: NextRequest) {
 
   const { org_id, template_id, max_projects, valid_until } = validated;
 
-  // --- Provision ---
   const result = await provisionOrgLicense(
     org_id,
     template_id,
-    max_projects,
+    max_projects ?? -1,
     valid_until ?? null,
-    supabaseUrl,
-    serviceRoleKey,
+    env,
   );
 
   if (!result.ok) {
-    // Distinguish client errors (bad IDs) from unexpected server errors.
     const isClientError =
       result.error.includes("already exists") ||
       result.error.includes("not found");
@@ -271,8 +175,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // --- Audit log ---
-  // org_id is already validated against ORG_ID_RE — safe to log.
   console.info(
     `[provision-license] License provisioned: org=${org_id} ` +
       `template=${template_id} max_projects=${max_projects} ` +

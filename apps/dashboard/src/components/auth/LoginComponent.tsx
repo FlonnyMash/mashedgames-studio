@@ -39,6 +39,13 @@ const POST_LOGIN_REDIRECT = "/";
 
 function resolveErrorMessage(raw: string): string {
   const msg = raw.toLowerCase();
+  if (msg.includes("legacy api keys are disabled")) {
+    return (
+      "Supabase legacy API keys are disabled. Update NEXT_PUBLIC_SUPABASE_ANON_KEY " +
+      "to your sb_publishable_ key and SUPABASE_SERVICE_ROLE_KEY to sb_secret_ in .env.local, " +
+      "then restart the dev server."
+    );
+  }
   if (msg.includes("invalid login credentials") || msg.includes("invalid_credentials")) {
     return "Incorrect email or password. Please try again.";
   }

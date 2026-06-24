@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./env-schema": "./src/env-schema.ts",
+    "./auth-jwt": "./src/auth-jwt.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",
