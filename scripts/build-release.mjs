@@ -59,6 +59,23 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
+// electron-builder expands ${env.MASHED_UPDATE_BASE_URL} from the process env
+// at packaging time. If it is not defined the build hard-fails, so we always
+// supply a value — defaulting to a placeholder when not explicitly configured.
+// The auto-updater will simply never find an update at a placeholder URL;
+// no harm is done and the installer is still produced correctly.
+const mashedUpdateBaseUrl =
+  process.env.MASHED_UPDATE_BASE_URL ??
+  envLocalVars.MASHED_UPDATE_BASE_URL ??
+  "https://releases.mashedgames.com";
+
+if (!process.env.MASHED_UPDATE_BASE_URL && !envLocalVars.MASHED_UPDATE_BASE_URL) {
+  console.warn(
+    "[build-release] WARNING: MASHED_UPDATE_BASE_URL not set — OTA auto-updater will be " +
+      `inactive. Using placeholder: ${mashedUpdateBaseUrl}`,
+  );
+}
+
 // Write runtime-supabase.json so the Electron main process can load the public
 // Supabase credentials at runtime (they are not available via process.env in a
 // packaged build since NEXT_PUBLIC_* vars are baked into the JS bundle, not the env).
@@ -77,6 +94,11 @@ const baseEnv = {
   NEXT_PUBLIC_APP_MODE: mode === "client" ? "configurator" : "studio",
   NEXT_PUBLIC_SUPABASE_URL: supabaseUrl,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: supabaseAnonKey,
+  MASHED_UPDATE_BASE_URL: mashedUpdateBaseUrl,
+  // Suppress pnpm's interactive "confirm module purge" prompt when running
+  // without a TTY (electron-builder staging deploys leave node_modules in a
+  // production state between runs, which triggers the guard on the next run).
+  CI: "true",
 };
 
 function run(command, args, env) {
@@ -98,9 +120,11 @@ function run(command, args, env) {
 
 // Ensure build-time toolchain binaries (tsc, vite, etc.) are present.
 // Some local workflows leave the workspace in a production-only install state.
+// --config.confirmModulesPurge=false prevents pnpm 11 from aborting when it
+// needs to remove/recreate node_modules without an interactive TTY.
 const installExitCode = run(
   "pnpm",
-  ["install", "--prod=false", "--yes", "--no-optimistic-repeat-install"],
+  ["install", "--prod=false", "--yes"],
   baseEnv,
 );
 if (installExitCode !== 0) {

@@ -153,27 +153,32 @@ export const TemplateSchemaSchema = z.object({
   // template's meta/ directory and excluded from game bundle exports.
   // ---------------------------------------------------------------------------
 
-  /** Short marketing description shown in the Storefront and Studio list. */
-  description: z.string().optional().default(""),
+  /**
+   * Short marketing description shown in the Storefront and Studio list.
+   * Leave absent in manifest.ts — this field is populated from the
+   * template's meta/template-meta.json sidecar by the publish pipeline.
+   */
+  description: z.string().optional(),
 
   /**
    * Relative path to the thumbnail image inside the template's meta/ dir.
+   * Leave absent in manifest.ts — populated from meta/template-meta.json.
    * Example: "meta/thumbnail.png"
    */
-  thumbnail: z.string().optional().default(""),
+  thumbnail: z.string().optional(),
 
   /**
    * Relative paths to preview media (gif / mp4 / png) inside meta/.
-   * Shown in the Storefront detail modal.
+   * Leave absent in manifest.ts — populated from meta/template-meta.json.
    * Example: ["meta/previews/gameplay.gif", "meta/previews/config.mp4"]
    */
-  previews: z.array(z.string()).optional().default([]),
+  previews: z.array(z.string()).optional(),
 
   /**
    * Markdown string rendered as a help tutorial inside the Configurator.
-   * Stored in meta/template-meta.json — not in manifest.ts source.
+   * Leave absent in manifest.ts — populated from meta/template-meta.json.
    */
-  tutorial: z.string().optional().default(""),
+  tutorial: z.string().optional(),
 });
 
 export type TemplateSchema = z.infer<typeof TemplateSchemaSchema>;

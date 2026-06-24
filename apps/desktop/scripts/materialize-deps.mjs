@@ -187,7 +187,12 @@ try {
       `--config.directories.output=${distDir}`,
       "--config.directories.buildResources=nsis",
     ],
-    { cwd: desktopDir }
+    {
+      cwd: desktopDir,
+      // Forward env so electron-builder can expand ${env.MASHED_UPDATE_BASE_URL}
+      // and other build-time vars that the parent build-release.mjs injected.
+      env: { ...process.env },
+    }
   );
   logPhase("done — installer written to apps/desktop/dist/");
 } finally {
