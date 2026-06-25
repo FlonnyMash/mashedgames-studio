@@ -53,6 +53,23 @@ function isElectronRuntime() {
   );
 }
 
+function buildPublishPayload(
+  templateId: string,
+  tier: Tier,
+  demoUrls: Record<string, string>,
+): { templateId: string; tier: Tier; demo_url?: string } {
+  const payload: { templateId: string; tier: Tier; demo_url?: string } = {
+    templateId,
+    tier,
+  };
+  // Send demo_url when the admin edited the field so publish-template can sync
+  // it to meta/template-meta.json before reading the persisted value for Supabase.
+  if (templateId in demoUrls) {
+    payload.demo_url = demoUrls[templateId]?.trim() ?? "";
+  }
+  return payload;
+}
+
 // ---------------------------------------------------------------------------
 // PublishTemplatePanel
 // ---------------------------------------------------------------------------
@@ -73,6 +90,41 @@ export function PublishTemplatePanel() {
     new Set(),
   );
 
+  const fetchDemoUrlsFromLocalMeta = useCallback(async (templates: LocalTemplate[]) => {
+    try {
+      const entries = await Promise.all(
+        templates.map(async (template) => {
+          try {
+            const res = await fetch(`/api/templates/${template.id}/meta`);
+            if (!res.ok) return null;
+            const body = (await res.json()) as {
+              ok?: boolean;
+              meta?: { demo_url?: string };
+            };
+            if (!body.ok || typeof body.meta?.demo_url !== "string") return null;
+            const trimmed = body.meta.demo_url.trim();
+            return trimmed ? ([template.id, trimmed] as const) : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      const urlMap: Record<string, string> = {};
+      for (const entry of entries) {
+        if (entry) {
+          urlMap[entry[0]] = entry[1];
+        }
+      }
+
+      if (Object.keys(urlMap).length > 0) {
+        setDemoUrls((prev) => ({ ...urlMap, ...prev }));
+      }
+    } catch {
+      // Non-fatal — demo URL inputs fall back to empty until deploy/publish.
+    }
+  }, []);
+
   const fetchTemplates = useCallback(async () => {
     setListState({ status: "loading" });
     try {
@@ -86,10 +138,11 @@ export function PublishTemplatePanel() {
         return;
       }
       setListState({ status: "success", templates: data.templates });
+      void fetchDemoUrlsFromLocalMeta(data.templates);
     } catch {
       setListState({ status: "error" });
     }
-  }, []);
+  }, [fetchDemoUrlsFromLocalMeta]);
 
   const fetchPublishedVersions = useCallback(async () => {
     try {
@@ -161,8 +214,9 @@ export function PublishTemplatePanel() {
 
       if (isElectronRuntime()) {
         const tier: Tier = tierSelections[templateId] ?? "free";
-        const demoUrl = demoUrls[templateId]?.trim() || undefined;
-        const body = await publishTemplateViaIpc({ templateId, tier, demoUrl });
+        const body = await publishTemplateViaIpc(
+          buildPublishPayload(templateId, tier, demoUrls),
+        );
 
         if (body !== null) {
           // IPC bridge responded — use its result regardless of success/failure.
@@ -240,7 +294,6 @@ export function PublishTemplatePanel() {
       }
 
       const tier: Tier = tierSelections[templateId] ?? "free";
-      const demoUrl = demoUrls[templateId]?.trim() || undefined;
 
       let res: Response;
       try {
@@ -250,7 +303,9 @@ export function PublishTemplatePanel() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${session.access_token}`,
           },
-          body: JSON.stringify({ templateId, tier, demo_url: demoUrl }),
+          body: JSON.stringify(
+            buildPublishPayload(templateId, tier, demoUrls),
+          ),
         });
       } catch {
         toast.error("Network error. Check your connection.");
@@ -355,11 +410,19 @@ export function PublishTemplatePanel() {
           return;
         }
 
-        // Immediately populate the demo URL input with the live URL.
-        setDemoUrls((prev) => ({ ...prev, [templateId]: body.demo_url }));
+        const deployedUrl = body.demo_url.trim();
+        if (!deployedUrl) {
+          toast.error("Deploy failed", {
+            description: "Server returned an empty demo URL.",
+          });
+          return;
+        }
+
+        // Pin the URL in form state — already persisted to template-meta.json by the API.
+        setDemoUrls((prev) => ({ ...prev, [templateId]: deployedUrl }));
 
         toast.success("Demo deployed!", {
-          description: `Live at ${body.demo_url}`,
+          description: `Live at ${deployedUrl}`,
         });
       } catch {
         toast.error("Network error", {

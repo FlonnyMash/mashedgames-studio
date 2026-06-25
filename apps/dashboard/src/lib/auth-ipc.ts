@@ -148,6 +148,7 @@ export async function wipePersistedTokensViaIpc(): Promise<AuthStatus | null> {
 type AdminRefDataResult =
   | {
       ok: true;
+      orgs: { id: string; name: string }[];
       templates: { id: string; template_slug: string }[];
     }
   | { ok: false; error: string };
@@ -174,7 +175,7 @@ export async function getAdminRefDataViaIpc(): Promise<AdminRefDataResult | null
 export async function publishTemplateViaIpc(payload: {
   templateId: string;
   tier: "free" | "premium" | "enterprise";
-  demoUrl?: string;
+  demo_url?: string;
 }): Promise<AdminPublishTemplateResult | null> {
   const electron = getElectron();
   if (!electron) return null;

@@ -17,17 +17,21 @@ function readParentSize(): { width: number; height: number } | null {
 }
 
 function applyGameSize(game: Phaser.Game): void {
-  const size = readParentSize();
-  if (!size) return;
+  if (!readParentSize()) return;
 
   const scale = game.scale as ScaleWithResize;
-  if (typeof scale.resize === "function") {
-    scale.resize(size.width, size.height);
+  // FIT mode letterboxes from the fixed 360×640 game size — refresh recalculates
+  // the canvas when the iframe or standalone container resizes.
+  if (typeof scale.refresh === "function") {
+    scale.refresh();
     return;
   }
 
-  if (typeof scale.refresh === "function") {
-    scale.refresh();
+  const size = readParentSize();
+  if (!size) return;
+
+  if (typeof scale.resize === "function") {
+    scale.resize(size.width, size.height);
     return;
   }
 

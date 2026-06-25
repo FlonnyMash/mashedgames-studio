@@ -26,7 +26,7 @@ type RefDataResponse =
 export async function GET(request: NextRequest): Promise<Response> {
   const loaded = loadSupabaseRuntimeEnv();
   if (!loaded.ok) {
-    return Response.json<RefDataResponse>(
+    return Response.json(
       { ok: false, error: "Server misconfiguration." },
       { status: 500 },
     );
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   const bearerToken = extractBearerToken(request.headers.get("Authorization"));
   if (!bearerToken) {
-    return Response.json<RefDataResponse>(
+    return Response.json(
       { ok: false, error: "Authorization header with Bearer token required." },
       { status: 401 },
     );
@@ -43,7 +43,7 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   const authResult = await verifyStudioAdmin(bearerToken, env);
   if ("error" in authResult) {
-    return Response.json<RefDataResponse>(
+    return Response.json(
       { ok: false, error: authResult.error },
       { status: authResult.status },
     );
@@ -64,13 +64,13 @@ export async function GET(request: NextRequest): Promise<Response> {
       orgsError: orgsResult.error,
       templatesError: templatesResult.error,
     });
-    return Response.json<RefDataResponse>(
+    return Response.json(
       { ok: false, error: "Failed to fetch reference data." },
       { status: 500 },
     );
   }
 
-  return Response.json<RefDataResponse>({
+  return Response.json({
     ok: true,
     orgs: orgsResult.data ?? [],
     templates: templatesResult.data ?? [],

@@ -2,18 +2,14 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { buildDemoBundle } from "./build-demo-bundle.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-
-// ---------------------------------------------------------------------------
-// Child-process helper — matches scripts/build-release.mjs and run-dev.mjs
-// ---------------------------------------------------------------------------
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? repoRoot,
     stdio: "inherit",
-    // shell: true is required on Windows so pnpm (.cmd shim) resolves from PATH.
     shell: true,
     env: options.env ?? process.env,
   });
@@ -36,48 +32,6 @@ function run(command, args, options = {}) {
   return { ok: false, status: result.status ?? 1 };
 }
 
-// ---------------------------------------------------------------------------
-// CLI arg
-// ---------------------------------------------------------------------------
-const templateName = process.argv[2];
-
-if (!templateName) {
-  console.error(
-    "[deploy-demo] ERROR: No template name provided.\n" +
-      "Usage: node scripts/deploy-demo.mjs <template-name>\n" +
-      "Example: node scripts/deploy-demo.mjs catch-game",
-  );
-  process.exit(1);
-}
-
-// ---------------------------------------------------------------------------
-// Validate that the template folder exists
-// ---------------------------------------------------------------------------
-const tmplDir = path.join(repoRoot, "packages", "templates", "src", templateName);
-
-if (!fs.existsSync(tmplDir) || !fs.statSync(tmplDir).isDirectory()) {
-  console.error(
-    `[deploy-demo] ERROR: Template folder not found: ${tmplDir}\n` +
-      `Make sure "${templateName}" exists under packages/templates/src/.`,
-  );
-  process.exit(1);
-}
-
-const templateConfigJson = path.join(tmplDir, "config.json");
-const templateAssetsDir = path.join(tmplDir, "assets");
-
-if (!fs.existsSync(templateConfigJson)) {
-  console.error(
-    `[deploy-demo] ERROR: config.json not found in template folder: ${templateConfigJson}`,
-  );
-  process.exit(1);
-}
-
-console.log(`[deploy-demo] Building demo for template: ${templateName}`);
-
-// ---------------------------------------------------------------------------
-// Load .env.local (shell env takes precedence)
-// ---------------------------------------------------------------------------
 function parseEnvFile(filePath) {
   const vars = {};
   try {
@@ -103,12 +57,26 @@ function parseEnvFile(filePath) {
   return vars;
 }
 
-const envLocalVars = parseEnvFile(path.join(repoRoot, ".env.local"));
+const templateName = process.argv[2];
+
+if (!templateName) {
+  console.error(
+    "[deploy-demo] ERROR: No template name provided.\n" +
+      "Usage: node scripts/deploy-demo.mjs <template-name>\n" +
+      "Example: node scripts/deploy-demo.mjs catch-game",
+  );
+  process.exit(1);
+}
+
+  console.log(`[deploy-demo] Building demo bundle for template: ${templateName}`);
+
+  const envLocalVars = parseEnvFile(path.join(repoRoot, ".env.local"));
+  const deployEnv = { ...process.env, ...envLocalVars };
 
 const cfApiToken =
-  process.env.CLOUDFLARE_API_TOKEN ?? envLocalVars.CLOUDFLARE_API_TOKEN;
+  deployEnv.CLOUDFLARE_API_TOKEN;
 const cfAccountId =
-  process.env.CLOUDFLARE_ACCOUNT_ID ?? envLocalVars.CLOUDFLARE_ACCOUNT_ID;
+  deployEnv.CLOUDFLARE_ACCOUNT_ID;
 
 if (!cfApiToken) {
   console.error(
@@ -126,72 +94,46 @@ if (!cfAccountId) {
   process.exit(1);
 }
 
-// ---------------------------------------------------------------------------
-// Step 1: Build the game-engine with the template pinned at build time
-// ---------------------------------------------------------------------------
-console.log(`\n[deploy-demo] Step 1: Building game-engine (VITE_DEMO_TEMPLATE=${templateName})...`);
+// Persist bundle locally so deploy-demo API route can measure size after upload.
+const stagingDir = path.join(repoRoot, ".demo-dist", templateName);
 
-const buildResult = run(
-  "pnpm",
-  ["--config.verifyDepsBeforeRun=false", "--filter", "game-engine", "build"],
-  { env: { ...process.env, VITE_DEMO_TEMPLATE: templateName } },
-);
+try {
+  console.log(`\n[deploy-demo] Step 1: Materializing demo bundle in ${stagingDir} ...`);
+  buildDemoBundle(templateName, stagingDir);
 
-if (!buildResult.ok) {
-  process.exit(buildResult.status);
-}
+  console.log(`\n[deploy-demo] Step 2: Deploying to Cloudflare Pages (branch: ${templateName})...`);
 
-// ---------------------------------------------------------------------------
-// Step 2: Stage template config.json and assets into dist/ post-build
-// ---------------------------------------------------------------------------
-const distDir = path.join(repoRoot, "apps", "game-engine", "dist");
-
-console.log(`\n[deploy-demo] Step 2: Staging template assets into ${distDir} ...`);
-
-// config.json
-fs.copyFileSync(templateConfigJson, path.join(distDir, "config.json"));
-console.log(`  Copied config.json`);
-
-// assets/ (only if the folder exists — some templates may have no binary assets)
-if (fs.existsSync(templateAssetsDir) && fs.statSync(templateAssetsDir).isDirectory()) {
-  const destAssetsDir = path.join(distDir, "assets");
-  fs.cpSync(templateAssetsDir, destAssetsDir, { recursive: true });
-  console.log(`  Copied assets/ → ${destAssetsDir}`);
-} else {
-  console.log(`  No assets/ folder found — skipping asset copy.`);
-}
-
-// ---------------------------------------------------------------------------
-// Step 3: Deploy to Cloudflare Pages
-// ---------------------------------------------------------------------------
-console.log(`\n[deploy-demo] Step 3: Deploying to Cloudflare Pages (branch: ${templateName})...`);
-
-const deployResult = run(
-  "pnpm",
-  [
-    "wrangler",
-    "pages",
-    "deploy",
-    distDir,
-    "--project-name",
-    "mashedgames-demos",
-    "--branch",
-    templateName,
-  ],
-  {
-    env: {
-      ...process.env,
-      CLOUDFLARE_API_TOKEN: cfApiToken,
-      CLOUDFLARE_ACCOUNT_ID: cfAccountId,
+  const deployResult = run(
+    "pnpm",
+    [
+      "wrangler",
+      "pages",
+      "deploy",
+      stagingDir,
+      "--project-name",
+      "mashedgames-demos",
+      "--branch",
+      templateName,
+    ],
+    {
+      env: {
+        ...deployEnv,
+        CLOUDFLARE_API_TOKEN: cfApiToken,
+        CLOUDFLARE_ACCOUNT_ID: cfAccountId,
+      },
     },
-  },
-);
+  );
 
-if (!deployResult.ok) {
-  process.exit(deployResult.status);
+  if (!deployResult.ok) {
+    process.exit(deployResult.status);
+  }
+
+  console.log(
+    `\n[deploy-demo] Done! Demo deployed to:\n` +
+      `  https://${templateName}.mashedgames-demos.pages.dev`,
+  );
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`[deploy-demo] ERROR: ${message}`);
+  process.exit(1);
 }
-
-console.log(
-  `\n[deploy-demo] Done! Demo deployed to:\n` +
-    `  https://${templateName}.mashedgames-demos.pages.dev`,
-);

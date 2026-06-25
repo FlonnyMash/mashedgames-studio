@@ -156,6 +156,14 @@ function buildUserClient(accessToken) {
   });
 }
 
+/** Returns true when Supabase URL + publishable key are present in main-process env. */
+function hasSupabaseConfig() {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() &&
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim(),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Core fetch logic
 // ---------------------------------------------------------------------------
@@ -169,10 +177,9 @@ function buildUserClient(accessToken) {
 async function fetchStoreCatalog() {
   const session = _getSession?.();
   if (!session) {
-    // Dev-preview: no active session but the flag is set — return placeholder
-    // data so the store UI is browseable without credentials.
-    if (isDevStorePreviewActive()) {
-      console.info("[store] Dev-preview: returning mock catalog (no session).");
+    // Mock catalog only when Supabase is genuinely unconfigured (local UI dev).
+    if (isDevStorePreviewActive() && !hasSupabaseConfig()) {
+      console.info("[store] Dev-preview: returning mock catalog (Supabase unconfigured).");
       return { ok: true, templates: DEV_MOCK_CATALOG, _devPreview: true };
     }
     return { ok: false, error: "NOT_AUTHENTICATED" };
@@ -188,10 +195,7 @@ async function fetchStoreCatalog() {
     supabase = buildUserClient(session.access_token);
   } catch (err) {
     console.error("[store] Failed to build authenticated Supabase client:", err.message);
-    // Dev-preview: Supabase credentials are absent (runtime-supabase.json was
-    // not bundled or the override file is missing) — return mock data instead
-    // of surfacing CLIENT_ERROR so the store UI remains accessible.
-    if (isDevStorePreviewActive()) {
+    if (isDevStorePreviewActive() && !hasSupabaseConfig()) {
       console.info("[store] Dev-preview: falling back to mock catalog (Supabase unconfigured).");
       return { ok: true, templates: DEV_MOCK_CATALOG, _devPreview: true };
     }

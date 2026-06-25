@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { canBrowseStoreWithoutAuth } from "@/lib/dev-store-access";
 import { supabase } from "@/lib/supabaseClient";
@@ -225,18 +226,27 @@ function DevPreviewBanner() {
         />
       </svg>
       <span>
-        <strong className="font-semibold">Dev Preview Mode</strong> — The
-        template catalog shown below is placeholder data. Supabase credentials
-        are not configured for this local build. Set{" "}
-        <code className="rounded bg-amber-100 px-1 font-mono">
-          devStorePreview: true
-        </code>{" "}
-        in{" "}
-        <code className="rounded bg-amber-100 px-1 font-mono">
-          dev-runtime-override.json
-        </code>{" "}
-        alongside real credentials to browse the live catalog.
+        <strong className="font-semibold">Dev Preview Mode</strong> — Supabase
+        is not configured. Showing placeholder templates for local UI work only.
       </span>
+    </div>
+  );
+}
+
+function StoreSignInPrompt() {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-12 text-center">
+      <p className="text-sm font-medium text-zinc-800">Sign in to browse the live template catalog</p>
+      <p className="mt-2 text-xs text-zinc-500">
+        The store requires an authenticated session. Your profile menu appears
+        after sign-in.
+      </p>
+      <Link
+        href="/login"
+        className="mt-6 inline-flex items-center justify-center rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700"
+      >
+        Sign in
+      </Link>
     </div>
   );
 }
@@ -262,6 +272,7 @@ export function TemplateStorefront() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isDevPreview, setIsDevPreview] = useState(false);
+  const [needsSignIn, setNeedsSignIn] = useState(false);
 
   useEffect(() => {
     if (!userId && !devStorePreview) {
@@ -270,25 +281,6 @@ export function TemplateStorefront() {
     }
 
     let cancelled = false;
-
-    async function loadViaIpc(): Promise<{ templates: EnrichedTemplate[]; devPreview: boolean }> {
-      type IpcResponse =
-        | { ok: true; templates: EnrichedTemplate[]; _devPreview?: boolean }
-        | { ok: false; error: string };
-
-      const result = (await window.electron!.ipcRenderer.invoke(
-        "store:load-catalog",
-      )) as IpcResponse;
-
-      if (!result.ok) {
-        throw new Error(result.error ?? "Failed to load templates.");
-      }
-
-      return {
-        templates: result.templates,
-        devPreview: result._devPreview === true,
-      };
-    }
 
     async function loadTemplatesCatalog() {
       const { data, error: err } = await supabase
@@ -308,17 +300,31 @@ export function TemplateStorefront() {
       setLoading(true);
       setError(null);
       setIsDevPreview(false);
+      setNeedsSignIn(false);
 
       try {
         let enriched: EnrichedTemplate[];
         let devPreview = false;
 
         if (typeof window !== "undefined" && window.electron) {
-          // Electron: route through IPC so the main process uses its
-          // authenticated JWT — the renderer's Supabase client is anon-only.
-          const ipcResult = await loadViaIpc();
-          enriched = ipcResult.templates;
-          devPreview = ipcResult.devPreview;
+          type IpcResponse =
+            | { ok: true; templates: EnrichedTemplate[]; _devPreview?: boolean }
+            | { ok: false; error: string };
+
+          const result = (await window.electron.ipcRenderer.invoke(
+            "store:load-catalog",
+          )) as IpcResponse;
+
+          if (!result.ok) {
+            if (result.error === "NOT_AUTHENTICATED") {
+              if (!cancelled) setNeedsSignIn(true);
+              return;
+            }
+            throw new Error(result.error ?? "Failed to load templates.");
+          }
+
+          enriched = result.templates;
+          devPreview = result._devPreview === true;
         } else {
           // Web: fetch templates and licenses in parallel.
           const [catalog] = await Promise.all([
@@ -368,6 +374,11 @@ export function TemplateStorefront() {
         <p className="mt-1 text-xs text-red-500">{error}</p>
       </div>
     );
+  }
+
+  // --- Sign-in required (Electron dev preview without main-process session) ---
+  if (needsSignIn && !userId) {
+    return <StoreSignInPrompt />;
   }
 
   // --- Unauthenticated (production only) ---

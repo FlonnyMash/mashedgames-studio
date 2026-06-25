@@ -15,6 +15,7 @@ import {
   isGameEventMessage,
   isGameLifecycleEventMessage,
   isLoadTemplateMessage,
+  normalizeTemplateId,
   resolveGameEngineBaseUrl,
   type AppMode,
   type AssetLoadErrorPayload,
@@ -86,10 +87,14 @@ export function resolveGameEnginePreviewUrl(
       : new URL(`${base}/index.html`, window.location.origin);
   url.searchParams.set("game", templateId);
   url.searchParams.set("appMode", appMode);
+  url.searchParams.set("bridge", "dashboard");
   return url.toString();
 }
 
 function isAllowedEngineMessageOrigin(origin: string): boolean {
+  if (typeof window !== "undefined" && origin === window.location.origin) {
+    return true;
+  }
   if (origin === getGameEngineOrigin()) {
     return true;
   }
@@ -179,8 +184,13 @@ class DashboardMessenger {
       this.engineReady = false;
       return;
     }
-    this.engineReady = true;
-    this.flush();
+    if (this.engineReady) {
+      this.flush();
+    }
+  }
+
+  isEngineReady(): boolean {
+    return this.engineReady;
   }
 
   onIframeNavigation(expectedTemplateId: GameTemplateId): void {
@@ -197,16 +207,16 @@ class DashboardMessenger {
   ): boolean {
     if (
       this.expectedTemplateId !== null &&
-      payload.activeTemplateId !== this.expectedTemplateId
+      normalizeTemplateId(payload.activeTemplateId) !==
+        normalizeTemplateId(this.expectedTemplateId)
     ) {
       return false;
     }
-    if (this.targetWindow !== null && event.source !== this.targetWindow) {
+    if (!(event.source instanceof Window)) {
       return false;
     }
-    if (event.source instanceof Window) {
-      this.targetWindow = event.source;
-    }
+    // Re-bind on every handshake — iframe navigations replace contentWindow.
+    this.targetWindow = event.source;
     return true;
   }
 
@@ -313,7 +323,7 @@ class DashboardMessenger {
   }
 
   sendLoadExternalAsset(key: string, absolutePath: string): void {
-    if (!this.engineReady || !this.targetWindow) return;
+    if (!this.targetWindow) return;
     const message = {
       type: BRIDGE_MESSAGE_TYPE.LOAD_EXTERNAL_ASSET,
       payload: { key, absolutePath },
@@ -325,7 +335,7 @@ class DashboardMessenger {
   }
 
   sendRuntimeAssets(assets: Record<string, string>): void {
-    if (!this.engineReady || !this.targetWindow) return;
+    if (!this.targetWindow) return;
     const message = {
       type: BRIDGE_MESSAGE_TYPE.SET_RUNTIME_ASSETS,
       payload: { assets },
@@ -343,11 +353,13 @@ class DashboardMessenger {
       return;
     }
 
-    if (this.engineReady && this.targetWindow) {
-      this.postUpdateConfig(parsed.data);
+    if (!this.targetWindow) {
+      this.pendingConfig = parsed.data;
       return;
     }
-    this.pendingConfig = parsed.data;
+
+    this.pendingConfig = null;
+    this.postUpdateConfig(parsed.data);
   }
 
   /** @deprecated Use sendUpdateConfig */

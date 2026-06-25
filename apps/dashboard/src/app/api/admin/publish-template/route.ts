@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createHmac, createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { revalidatePath } from "next/cache";
 import type { NextRequest } from "next/server";
 import type { Database } from "@/types/database.types";
 import {
@@ -15,6 +16,7 @@ import { gameEngineRoot } from "@/lib/template-library-root";
 import {
   readTemplateMeta,
   resolveTemplateMetaDir,
+  writeTemplateMeta,
 } from "@/lib/template-meta-io";
 
 export const runtime = "nodejs";
@@ -41,9 +43,17 @@ const BUNDLE_BUCKET = "template-bundles";
 /** Bucket for public promotional assets (thumbnail, previews). Must be public. */
 const META_ASSETS_BUCKET = "template-assets";
 
-// ---------------------------------------------------------------------------
-// Version helpers
-// ---------------------------------------------------------------------------
+function validateDemoUrl(demoUrl: string): string | null {
+  try {
+    const parsed = new URL(demoUrl);
+    if (parsed.protocol !== "https:") {
+      return "demo_url must use HTTPS.";
+    }
+    return null;
+  } catch {
+    return "demo_url is not a valid URL.";
+  }
+}
 
 function bumpPatchVersion(version: string): string {
   const parts = version.split(".").map(Number);
@@ -307,24 +317,6 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const { templateId, tier = "free", demo_url } = (body ?? {}) as Partial<PublishRequest>;
 
-  // Validate demo_url if provided
-  if (demo_url !== undefined && demo_url !== "") {
-    try {
-      const parsed = new URL(demo_url);
-      if (parsed.protocol !== "https:") {
-        return Response.json<PublishResponse>(
-          { ok: false, error: "demo_url must use HTTPS." },
-          { status: 400 },
-        );
-      }
-    } catch {
-      return Response.json<PublishResponse>(
-        { ok: false, error: "demo_url is not a valid URL." },
-        { status: 400 },
-      );
-    }
-  }
-
   if (!templateId || typeof templateId !== "string") {
     return Response.json<PublishResponse>(
       { ok: false, error: "templateId is required." },
@@ -347,6 +339,27 @@ export async function POST(request: NextRequest): Promise<Response> {
       { ok: false, error: `Template "${templateId}" not found on disk.` },
       { status: 404 },
     );
+  }
+
+  // Sync request demo_url to template-meta.json when the admin edited the field.
+  if (demo_url !== undefined) {
+    const trimmed = demo_url.trim();
+    if (trimmed !== "") {
+      const validationError = validateDemoUrl(trimmed);
+      if (validationError) {
+        return Response.json<PublishResponse>(
+          { ok: false, error: validationError },
+          { status: 400 },
+        );
+      }
+    }
+    const syncResult = writeTemplateMeta(templateId, { demo_url: trimmed });
+    if (!syncResult.ok) {
+      return Response.json<PublishResponse>(
+        { ok: false, error: syncResult.error },
+        { status: syncResult.status },
+      );
+    }
   }
 
   // --- Build bundle ---
@@ -435,15 +448,29 @@ export async function POST(request: NextRequest): Promise<Response> {
     .eq("is_latest", true);
 
   // --- Build DB payload (includes the four new meta columns) ---
+  const localMeta = readTemplateMeta(templateId);
+  const publishedAt = new Date().toISOString();
   const manifest: Record<string, unknown> = {
     id: templateId,
     displayName: templateMeta.displayName,
     version,
-    publishedAt: new Date().toISOString(),
+    publishedAt,
   };
 
-  if (demo_url) {
-    manifest.demo_url = demo_url;
+  const persistedDemoUrl = localMeta.demo_url.trim();
+  if (persistedDemoUrl) {
+    const validationError = validateDemoUrl(persistedDemoUrl);
+    if (validationError) {
+      return Response.json<PublishResponse>(
+        { ok: false, error: `Invalid demo_url in template-meta.json: ${validationError}` },
+        { status: 422 },
+      );
+    }
+    manifest.demo_url = persistedDemoUrl;
+  }
+
+  if (typeof localMeta.demo_size_kb === "number" && Number.isFinite(localMeta.demo_size_kb)) {
+    manifest.demo_size_kb = localMeta.demo_size_kb;
   }
 
   const insertPayload = {
@@ -456,6 +483,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     manifest,
     is_latest: true,
     yanked: false,
+    published_at: publishedAt,
     description: metaUrls.description,
     tutorial: metaUrls.tutorial,
     thumbnail_url: metaUrls.thumbnailUrl,
@@ -494,6 +522,8 @@ export async function POST(request: NextRequest): Promise<Response> {
         `tier=${tier} id=${updated.id} by=${authResult.userId}`,
     );
 
+    revalidatePath("/dashboard/store");
+
     return Response.json<PublishResponse>(
       { ok: true, templateRowId: updated.id, version, storageKey },
       { status: 200 },
@@ -513,6 +543,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     `[publish-template] Published: slug=${templateId} v=${version} ` +
       `tier=${tier} id=${inserted.id} by=${authResult.userId}`,
   );
+
+  revalidatePath("/dashboard/store");
 
   return Response.json<PublishResponse>(
     { ok: true, templateRowId: inserted.id, version, storageKey },

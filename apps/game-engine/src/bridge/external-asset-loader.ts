@@ -18,11 +18,23 @@ function findLoadableScene(game: PhaserGame): Phaser.Scene | null {
   return scenes.find((scene) => Boolean(scene.load)) ?? null;
 }
 
+function isWebResolvableAssetUrl(value: string): boolean {
+  return (
+    value.startsWith("http://") ||
+    value.startsWith("https://") ||
+    value.startsWith("./") ||
+    value.startsWith("/")
+  );
+}
+
 function resolveExternalAssetUrl(
   absolutePath: string,
   projectId?: string | null,
 ): string {
   const normalized = absolutePath.replace(/\\/g, "/");
+  if (isWebResolvableAssetUrl(normalized)) {
+    return withCacheBust(normalized);
+  }
   const assetsIndex = normalized.toLowerCase().indexOf("/assets/");
   if (projectId && assetsIndex >= 0) {
     const relativePath = normalized.slice(assetsIndex + 1);

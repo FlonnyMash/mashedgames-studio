@@ -188,6 +188,12 @@ export const TemplateSchemaSchema = z.object({
    * Example: "https://demos.mashedgames.com/catch-game"
    */
   demo_url: z.string().url().optional(),
+
+  /**
+   * Total size of the deployed standalone demo bundle in kilobytes.
+   * Populated by the deploy-demo pipeline after a successful Cloudflare Pages upload.
+   */
+  demo_size_kb: z.number().optional(),
 });
 
 export type TemplateSchema = z.infer<typeof TemplateSchemaSchema>;

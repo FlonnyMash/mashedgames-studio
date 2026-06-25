@@ -92,14 +92,6 @@ export function DevicePreview({
     }
   }, [initialTemplateId]);
 
-  useBridgeSync({
-    appMode,
-    messenger,
-    suspended,
-    iframeRef,
-    previewTemplateId: initialTemplateId,
-  });
-
   useEffect(() => {
     if (suspended) {
       return;
@@ -115,8 +107,25 @@ export function DevicePreview({
 
     return () => {
       window.removeEventListener("message", onIframeMessage);
-      messenger.setTarget(null);
       usePreviewBridgeStore.getState().setMessenger(null);
+    };
+  }, [messenger, suspended]);
+
+  useBridgeSync({
+    appMode,
+    messenger,
+    suspended,
+    iframeRef,
+    previewTemplateId: activeTemplateId,
+  });
+
+  useEffect(() => {
+    if (suspended) {
+      return;
+    }
+
+    return () => {
+      messenger.setTarget(null);
     };
   }, [messenger, suspended]);
 

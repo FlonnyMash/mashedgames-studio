@@ -285,12 +285,10 @@ export async function verifyJwtEs256(
     if (header.alg !== JWT_ES256_ALG) return null;
 
     const publicKey = await importEs256PublicKey(publicKeyMaterial);
-    const derSignature = jwsSignatureToDer(signature);
-    const valid = await crypto.subtle.verify(
-      SIGN_VERIFY_ALGORITHM,
+    const valid = await verifyEs256JwsSignature(
       publicKey,
-      bufferSource(derSignature),
-      bufferSource(utf8ToBytes(signingInput)),
+      signingInput,
+      signature,
     );
 
     if (!valid) return null;
@@ -353,6 +351,41 @@ async function fetchJwksKeys(jwksUrl: string): Promise<JsonWebKeyWithKid[]> {
   return body.keys ?? [];
 }
 
+/**
+ * Verifies an ES256 JWS signature (raw r||s, 64 bytes).
+ * Modern Web Crypto runtimes (Node 18+, Cloudflare Workers) accept IEEE P1363
+ * directly; older paths expect ASN.1 DER — try both.
+ */
+async function verifyEs256JwsSignature(
+  publicKey: CryptoKey,
+  signingInput: string,
+  signature: Uint8Array,
+): Promise<boolean> {
+  const data = bufferSource(utf8ToBytes(signingInput));
+
+  if (signature.length === 64) {
+    const rawValid = await crypto.subtle.verify(
+      SIGN_VERIFY_ALGORITHM,
+      publicKey,
+      bufferSource(signature),
+      data,
+    );
+    if (rawValid) return true;
+  }
+
+  try {
+    const derSignature = jwsSignatureToDer(signature);
+    return crypto.subtle.verify(
+      SIGN_VERIFY_ALGORITHM,
+      publicKey,
+      bufferSource(derSignature),
+      data,
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function verifyJwtWithJwk(
   signingInput: string,
   signature: Uint8Array,
@@ -365,13 +398,7 @@ async function verifyJwtWithJwk(
     true,
     ["verify"],
   );
-  const derSignature = jwsSignatureToDer(signature);
-  return crypto.subtle.verify(
-    SIGN_VERIFY_ALGORITHM,
-    publicKey,
-    bufferSource(derSignature),
-    bufferSource(utf8ToBytes(signingInput)),
-  );
+  return verifyEs256JwsSignature(publicKey, signingInput, signature);
 }
 
 /**

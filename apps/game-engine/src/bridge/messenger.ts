@@ -31,11 +31,59 @@ export type EngineBridgeHandlers = {
 
 let currentTemplateId: GameTemplateId = "default";
 
+/** Materialized Cloudflare demo shell: React host + engine iframe on one origin. */
+function isStandaloneBridge(): boolean {
+  const bridge = new URLSearchParams(window.location.search).get("bridge");
+  if (bridge === "standalone") return true;
+  if (bridge === "dashboard") return false;
+
+  if (window.parent === window) {
+    return false;
+  }
+
+  try {
+    return (
+      window.parent.location.origin === window.location.origin &&
+      window.parent.document.querySelector("[data-mashed-demo-shell]") != null
+    );
+  } catch {
+    return false;
+  }
+}
+
+function resolveOutboundBridgeTarget(): { target: Window; origin: string } | null {
+  const standalone = isStandaloneBridge();
+
+  if (standalone) {
+    const target = window.parent !== window ? window.parent : window;
+    return { target, origin: window.location.origin };
+  }
+
+  if (window.parent === window) {
+    return null;
+  }
+
+  return { target: window.parent, origin: getParentTargetOrigin() };
+}
+
+function isAllowedInboundMessageSource(source: MessageEventSource | null): boolean {
+  if (!source) {
+    return false;
+  }
+
+  if (isStandaloneBridge()) {
+    return source === window.parent || source === window;
+  }
+
+  return source === window.parent;
+}
+
 export class EngineMessenger {
   private configListeners = new Set<(config: GameConfig) => void>();
   private handlers: EngineBridgeHandlers | null = null;
   private started = false;
   private boundListener: ((event: MessageEvent) => void) | null = null;
+  private standaloneReadyRetryTimers: number[] = [];
 
   start(handlers: EngineBridgeHandlers): void {
     if (this.started) return;
@@ -57,10 +105,20 @@ export class EngineMessenger {
   }
 
   sendEngineReady(): void {
-    if (window.parent === window) return;
+    this.postEngineReady();
+    if (isStandaloneBridge()) {
+      this.scheduleEngineReadyRetries([50, 150, 400, 1000, 2000]);
+    } else {
+      this.scheduleEngineReadyRetries([150, 600, 1200]);
+    }
+  }
+
+  private postEngineReady(): void {
+    const outbound = resolveOutboundBridgeTarget();
+    if (!outbound) return;
 
     const handlers = this.handlers;
-    window.parent.postMessage(
+    outbound.target.postMessage(
       {
         type: BRIDGE_MESSAGE_TYPE.ENGINE_READY,
         payload: {
@@ -68,36 +126,64 @@ export class EngineMessenger {
           appMode: getEngineMode(),
         },
       },
-      getParentTargetOrigin(),
+      outbound.origin,
     );
   }
 
-  sendAssetLoadError(payload: AssetLoadErrorPayload): void {
-    if (window.parent === window) return;
+  private clearEngineReadyRetries(): void {
+    for (const timerId of this.standaloneReadyRetryTimers) {
+      window.clearTimeout(timerId);
+    }
+    this.standaloneReadyRetryTimers = [];
+  }
 
-    window.parent.postMessage(
+  private scheduleEngineReadyRetries(
+    delaysMs: number[] = [50, 150, 400],
+  ): void {
+    this.clearEngineReadyRetries();
+    for (const delayMs of delaysMs) {
+      const timerId = window.setTimeout(() => {
+        this.postEngineReady();
+      }, delayMs);
+      this.standaloneReadyRetryTimers.push(timerId);
+    }
+  }
+
+  private maybeResendEngineReadyAfterConfig(): void {
+    const game = this.handlers?.getGame();
+    if (game?.isBooted) {
+      this.postEngineReady();
+    }
+  }
+
+  sendAssetLoadError(payload: AssetLoadErrorPayload): void {
+    const outbound = resolveOutboundBridgeTarget();
+    if (!outbound) return;
+
+    outbound.target.postMessage(
       {
         type: BRIDGE_MESSAGE_TYPE.ASSET_LOAD_ERROR,
         payload,
       },
-      getParentTargetOrigin(),
+      outbound.origin,
     );
   }
 
   sendGameLifecycleEvent(payload: GameLifecycleEventPayload): void {
-    if (window.parent === window) return;
+    const outbound = resolveOutboundBridgeTarget();
+    if (!outbound) return;
 
     const parsed = GameLifecycleEventPayloadSchema.safeParse(payload);
     if (!parsed.success) {
       return;
     }
 
-    window.parent.postMessage(
+    outbound.target.postMessage(
       {
         type: BRIDGE_MESSAGE_TYPE.GAME_LIFECYCLE_EVENT,
         payload: parsed.data,
       },
-      getParentTargetOrigin(),
+      outbound.origin,
     );
   }
 
@@ -109,7 +195,7 @@ export class EngineMessenger {
   }
 
   private handleMessage(event: MessageEvent): void {
-    if (event.source !== window.parent) return;
+    if (!isAllowedInboundMessageSource(event.source)) return;
     if (!isAllowedDashboardOrigin(event.origin)) {
       return;
     }
@@ -134,6 +220,7 @@ export class EngineMessenger {
         if (game) {
           game.events.emit("bridge:config-update", parsed.data);
         }
+        this.maybeResendEngineReadyAfterConfig();
         break;
       }
       case BRIDGE_MESSAGE_TYPE.LOAD_TEMPLATE: {

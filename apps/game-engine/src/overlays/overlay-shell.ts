@@ -42,18 +42,6 @@ function forwardLifecycleEvent(payload: GameLifecycleEventPayload): void {
 }
 
 /**
- * Mounts the standalone vanilla-HTML overlays into #ui-layer.
- * Uses a dynamic import so standalone-ui.ts is excluded from the iframe bundle
- * when this code path is never reached.
- * Must only be called when isStandaloneMode() returns true.
- */
-export function mountStandaloneOverlays(game: Game, config: GameConfig): void {
-  void import("./standalone-ui.ts").then(({ initStandaloneUI }) => {
-    initStandaloneUI(getOverlayRoot(), game, config);
-  });
-}
-
-/**
  * Forwards template scene lifecycle events to the dashboard via GAME_LIFECYCLE_EVENT.
  * Templates emit on `game.events` (see CatchGameScene.emitLifecycle).
  */

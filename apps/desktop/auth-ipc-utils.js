@@ -219,7 +219,7 @@ function buildStatusPayload(session) {
  */
 async function restoreSession() {
   const persisted = readPersistedSession();
-  if (!persisted) return;
+  if (!persisted?.refresh_token) return;
 
   let supabase;
   try {
@@ -234,8 +234,10 @@ async function restoreSession() {
   let data, error;
   try {
     const RESTORE_TIMEOUT_MS = 6000;
-    const restorePromise = supabase.auth.setSession({
-      access_token: persisted.access_token,
+    // Prefer refreshSession over setSession — ES256 access tokens cannot be
+    // verified locally by older client paths (unrecognized JWT kid). Refresh
+    // exchanges the refresh_token with GoTrue and returns a fresh session.
+    const restorePromise = supabase.auth.refreshSession({
       refresh_token: persisted.refresh_token,
     });
     const timeoutPromise = new Promise((_, reject) =>
@@ -247,15 +249,8 @@ async function restoreSession() {
     ({ data, error } = await Promise.race([restorePromise, timeoutPromise]));
   } catch (err) {
     console.warn("[auth] Session restore failed or timed out:", err.message);
-    // On timeout or network error, fall back to offline mode.
-    // Keep persisted tokens on disk — they may be valid again once online.
-    _session = {
-      access_token: persisted.access_token,
-      refresh_token: persisted.refresh_token,
-      expires_at: persisted.expires_at,
-      email: persisted.email ?? null,
-      user: null,
-    };
+    clearPersistedSession();
+    _session = null;
     return;
   }
 

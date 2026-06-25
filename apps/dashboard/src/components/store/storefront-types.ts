@@ -22,6 +22,8 @@ export type ManifestShape = {
   supportsUI?: string[];
   /** Optional URL for an embeddable live demo iframe. */
   demo_url?: string;
+  /** Deployed demo bundle size in kilobytes (from deploy-demo pipeline). */
+  demo_size_kb?: number;
   /** Optional path to a logo image for this template. */
   logoUrl?: string;
 };

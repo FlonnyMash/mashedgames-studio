@@ -1,7 +1,7 @@
 "use client";
 
-import { useId, useState } from "react";
-import { Gamepad2, Lock, Loader2, X } from "lucide-react";
+import { useId, useRef, useState, type ReactNode } from "react";
+import { Gamepad2, Lock, Loader2, Package, X, Zap } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { useLicenseStore } from "@/store/useLicenseStore";
 import {
@@ -40,6 +40,180 @@ function formatPublishedAt(iso: string): string {
   } catch {
     return iso.slice(0, 10);
   }
+}
+
+type LoadTier = "fast" | "moderate" | "slow";
+
+function getLoadTier(seconds: number): LoadTier {
+  if (seconds <= 0.2) return "fast";
+  if (seconds <= 0.7) return "moderate";
+  return "slow";
+}
+
+const LOAD_TIER_BADGE: Record<LoadTier, string> = {
+  fast: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  moderate: "border-amber-200 bg-amber-50 text-amber-700",
+  slow: "border-red-200 bg-red-50 text-red-700",
+};
+
+const LOAD_TIER_LABEL: Record<LoadTier, string> = {
+  fast: "Excellent",
+  moderate: "Acceptable",
+  slow: "Slow",
+};
+
+const LOAD_TIER_DOT: Record<LoadTier, string> = {
+  fast: "bg-emerald-500",
+  moderate: "bg-amber-500",
+  slow: "bg-red-500",
+};
+
+function DemoPerformanceBadge({
+  loadTimeMs,
+  demoSizeKb,
+}: {
+  loadTimeMs: number | null;
+  demoSizeKb?: number;
+}) {
+  const badgeRef = useRef<HTMLSpanElement>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
+  const loadSeconds = loadTimeMs !== null ? loadTimeMs / 1000 : null;
+  const tier =
+    loadSeconds !== null ? getLoadTier(loadSeconds) : null;
+  const badgeCls =
+    tier !== null ? LOAD_TIER_BADGE[tier] : "border-zinc-200 bg-zinc-50 text-zinc-600";
+
+  const cancelHide = () => {
+    if (hideTimerRef.current) {
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+  };
+
+  const scheduleHide = () => {
+    cancelHide();
+    hideTimerRef.current = setTimeout(() => setShowInfo(false), 120);
+  };
+
+  const openInfo = () => {
+    cancelHide();
+    const el = badgeRef.current;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      setTooltipPos({
+        top: rect.bottom + 8,
+        left: Math.max(12, rect.right - 288),
+      });
+    }
+    setShowInfo(true);
+  };
+
+  return (
+    <div className="relative">
+      <span
+        ref={badgeRef}
+        tabIndex={0}
+        onMouseEnter={openInfo}
+        onMouseLeave={scheduleHide}
+        onFocus={openInfo}
+        onBlur={scheduleHide}
+        className={`inline-flex cursor-help items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shadow-sm transition-colors ${badgeCls}`}
+        aria-describedby={showInfo ? "demo-perf-info" : undefined}
+      >
+        <Zap className="h-3 w-3 shrink-0" aria-hidden />
+        Load Time:{" "}
+        {loadTimeMs === null ? (
+          <>
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+            <span className="sr-only">Measuring load time</span>
+          </>
+        ) : (
+          `${loadSeconds!.toFixed(2)}s`
+        )}
+      </span>
+
+      {showInfo ? (
+        <div
+          id="demo-perf-info"
+          role="tooltip"
+          style={{ top: tooltipPos.top, left: tooltipPos.left }}
+          onMouseEnter={cancelHide}
+          onMouseLeave={scheduleHide}
+          className="fixed z-[100] w-72 rounded-xl border border-zinc-200 bg-white p-4 shadow-lg ring-1 ring-zinc-950/5"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
+            Demo performance
+          </p>
+
+          <div className="mt-3 space-y-2">
+            <div className="flex items-center justify-between gap-3 text-sm">
+              <span className="text-zinc-500">Load time</span>
+              <span className="font-semibold text-zinc-900">
+                {loadTimeMs === null ? (
+                  <span className="inline-flex items-center gap-1.5 text-zinc-400">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                    Measuring…
+                  </span>
+                ) : (
+                  <>
+                    {loadSeconds!.toFixed(2)}s
+                    {tier ? (
+                      <span className="ml-1.5 text-xs font-medium text-zinc-500">
+                        ({LOAD_TIER_LABEL[tier]})
+                      </span>
+                    ) : null}
+                  </>
+                )}
+              </span>
+            </div>
+
+            {typeof demoSizeKb === "number" ? (
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="inline-flex items-center gap-1.5 text-zinc-500">
+                  <Package className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  Bundle size
+                </span>
+                <span className="font-semibold text-zinc-900">
+                  {(demoSizeKb / 1024).toFixed(2)} MB
+                </span>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-4 border-t border-zinc-100 pt-3">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+              Load time scale
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {(
+                [
+                  ["fast", "≤ 0.20s", "Excellent — near-instant"],
+                  ["moderate", "0.21 – 0.70s", "Acceptable"],
+                  ["slow", "> 0.70s", "Needs optimization"],
+                ] as const
+              ).map(([key, range, label]) => (
+                <li key={key} className="flex items-center gap-2 text-xs text-zinc-600">
+                  <span
+                    className={`h-2 w-2 shrink-0 rounded-full ${LOAD_TIER_DOT[key]}`}
+                    aria-hidden
+                  />
+                  <span className="font-medium text-zinc-700">{range}</span>
+                  <span className="text-zinc-400">— {label}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <p className="mt-3 text-[11px] leading-relaxed text-zinc-400">
+            Load time was measured live in your browser just now. Bundle size reflects
+            the last deployed demo build.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +411,31 @@ function AcquireCTA({
 }
 
 // ---------------------------------------------------------------------------
+// Device mockup — shared portrait frame for demo iframe & screenshot fallback
+// ---------------------------------------------------------------------------
+
+const DEVICE_MOCKUP_CLASSES =
+  "relative h-[65vh] md:h-[70vh] 2xl:h-[75vh] max-h-[850px] aspect-[9/16] w-auto mx-auto bg-black rounded-[2.5rem] overflow-hidden shadow-2xl ring-8 ring-slate-800 shrink-0 flex-none";
+
+function DeviceMockupFrame({ children }: { children: ReactNode }) {
+  return <div className={DEVICE_MOCKUP_CLASSES}>{children}</div>;
+}
+
+function collectFallbackImages(template: EnrichedTemplate): string[] {
+  const previews = Array.isArray(template.preview_urls)
+    ? template.preview_urls.filter(
+        (url): url is string => typeof url === "string" && url.trim().length > 0,
+      )
+    : [];
+
+  if (previews.length > 0) return previews;
+  if (typeof template.thumbnail_url === "string" && template.thumbnail_url.trim()) {
+    return [template.thumbnail_url];
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------
 // StorefrontDetailsDialog
 // ---------------------------------------------------------------------------
 
@@ -251,6 +450,8 @@ export function StorefrontDetailsDialog({
 }) {
   const titleId = useId();
   const manifest = parseManifest(template.manifest);
+  const [loadStartTime] = useState(() => Date.now());
+  const [loadTimeMs, setLoadTimeMs] = useState<number | null>(null);
 
   const displayName = manifest.displayName ?? slugToTitle(template.template_slug);
   const tierInfo = TIER_BADGE[template.tier] ?? TIER_BADGE.premium;
@@ -258,6 +459,7 @@ export function StorefrontDetailsDialog({
     ? manifest.supportsUI
     : [];
   const demoUrl = manifest.demo_url ?? null;
+  const fallbackImages = collectFallbackImages(template);
 
   const hasContent = demoUrl || template.description || featureModules.length > 0;
 
@@ -292,32 +494,54 @@ export function StorefrontDetailsDialog({
           <X className="h-4 w-4" />
         </button>
 
-        {/* ── Left column: Media (col-span-8) ── */}
-        <div className="flex w-0 flex-1 flex-col items-center justify-center overflow-y-auto bg-zinc-50 p-8">
+        {/* ── Left column: Media ── */}
+        <div className="col-span-12 md:col-span-8 flex min-w-0 flex-1 items-center justify-center w-full min-h-[500px] overflow-y-auto rounded-2xl bg-slate-50/50">
           {demoUrl ? (
-            <div className="flex flex-col items-center">
-              <div className="w-[300px] overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-900 shadow-2xl ring-1 ring-black/8">
-                <div className="aspect-9/16">
-                  <iframe
-                    src={demoUrl}
-                    sandbox="allow-scripts allow-same-origin allow-forms"
-                    title={`${displayName} live demo`}
-                    loading="lazy"
-                    className="h-full w-full"
-                  />
-                </div>
-              </div>
-              <p className="mt-4 text-center text-xs tracking-wide text-zinc-400">
+            <div className="flex flex-col items-center px-4 py-6">
+              <DeviceMockupFrame>
+                <iframe
+                  src={demoUrl}
+                  sandbox="allow-scripts allow-same-origin allow-forms"
+                  title={`${displayName} live demo`}
+                  loading="lazy"
+                  onLoad={() => setLoadTimeMs(Date.now() - loadStartTime)}
+                  className="absolute inset-0 h-full w-full border-0"
+                />
+              </DeviceMockupFrame>
+              <p className="mt-6 text-center text-xs tracking-wide text-zinc-400">
                 Interactive demo — scroll or tap to play
               </p>
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-3 text-zinc-300">
-              <Gamepad2 className="h-12 w-12" aria-hidden />
-              <p className="text-sm text-zinc-400">No playable demo available</p>
-              <span className="font-mono text-xs text-zinc-300">
-                {template.template_slug}
-              </span>
+            <div className="flex flex-col items-center px-4 py-6">
+              <DeviceMockupFrame>
+                {fallbackImages.length > 0 ? (
+                  <div className="absolute inset-0 grid grid-cols-2 gap-0.5 overflow-y-auto bg-zinc-950 p-0.5">
+                    {fallbackImages.map((url, index) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={`${url}-${index}`}
+                        src={url}
+                        alt={`${displayName} preview ${index + 1}`}
+                        className="aspect-[9/16] w-full object-cover"
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900 px-6 text-center">
+                    <Gamepad2 className="h-10 w-10 text-zinc-600" aria-hidden />
+                    <p className="text-sm text-zinc-500">No playable demo available</p>
+                    <span className="font-mono text-xs text-zinc-600">
+                      {template.template_slug}
+                    </span>
+                  </div>
+                )}
+              </DeviceMockupFrame>
+              {fallbackImages.length > 0 ? (
+                <p className="mt-6 text-center text-xs tracking-wide text-zinc-400">
+                  Preview screenshots
+                </p>
+              ) : null}
             </div>
           )}
         </div>
@@ -377,6 +601,20 @@ export function StorefrontDetailsDialog({
                 v{template.version}
               </span>
             </div>
+
+            {/* Performance stats */}
+            {demoUrl ? (
+              <div className="mt-3">
+                <DemoPerformanceBadge
+                  loadTimeMs={loadTimeMs}
+                  demoSizeKb={
+                    typeof manifest.demo_size_kb === "number"
+                      ? manifest.demo_size_kb
+                      : undefined
+                  }
+                />
+              </div>
+            ) : null}
 
             {/* Features */}
             {featureModules.length > 0 ? (

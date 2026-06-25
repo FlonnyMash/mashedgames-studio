@@ -40,6 +40,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (typeof body.tutorial === "string") allowedPatch.tutorial = body.tutorial;
   if (typeof body.thumbnail === "string") allowedPatch.thumbnail = body.thumbnail;
   if (Array.isArray(body.previews)) allowedPatch.previews = body.previews;
+  if (typeof body.demo_url === "string") allowedPatch.demo_url = body.demo_url;
 
   const result = writeTemplateMeta(templateId, allowedPatch);
   if (!result.ok) {

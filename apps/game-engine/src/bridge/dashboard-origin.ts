@@ -9,6 +9,16 @@ export function getDashboardOrigin(): string | undefined {
 }
 
 export function getParentTargetOrigin(): string {
+  if (window.parent !== window) {
+    try {
+      if (window.parent.location.origin === window.location.origin) {
+        return window.location.origin;
+      }
+    } catch {
+      // Cross-origin parent — fall through to referrer / configured origin.
+    }
+  }
+
   if (document.referrer) {
     try {
       return new URL(document.referrer).origin;
@@ -24,6 +34,11 @@ function isLocalDashboardHost(hostname: string): boolean {
 }
 
 export function isAllowedDashboardOrigin(origin: string): boolean {
+  // Standalone demo bundles host React UI + engine on the same origin (e.g. *.pages.dev).
+  if (origin === window.location.origin) {
+    return true;
+  }
+
   const configured = getDashboardOrigin();
   if (configured) return origin === configured;
 

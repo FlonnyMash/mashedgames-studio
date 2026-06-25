@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { NextRequest } from "next/server";
 import {
@@ -8,6 +10,7 @@ import {
   loadSupabaseRuntimeEnv,
   verifyStudioAdmin,
 } from "@/lib/supabase-auth";
+import { resolveTemplateMetaDir, resolveTemplateMetaJson } from "@/lib/template-meta-io";
 
 export const runtime = "nodejs";
 
@@ -24,7 +27,7 @@ export const maxDuration = 300;
 // ---------------------------------------------------------------------------
 
 type DeployResponse =
-  | { ok: true; demo_url: string }
+  | { ok: true; demo_url: string; demo_size_kb?: number }
   | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
@@ -114,26 +117,21 @@ function runCommand(
   });
 }
 
-// ---------------------------------------------------------------------------
-// URL extraction from deploy script output
-// ---------------------------------------------------------------------------
+async function getDirectorySize(dirPath: string): Promise<number> {
+  let totalBytes = 0;
+  const entries = await readdir(dirPath, { withFileTypes: true });
 
-function extractDeployedUrl(stdout: string, templateSlug: string): string {
-  // Primary: try to match the Cloudflare Pages URL that Wrangler logs.
-  // Wrangler emits lines like:
-  //   ✨ Deployment complete! Take a peek over at https://xxx.mashedgames-demos.pages.dev
-  // The deploy script also prints:
-  //   https://<slug>.mashedgames-demos.pages.dev
-  const match = stdout.match(
-    /https:\/\/[a-zA-Z0-9-]+\.mashedgames-demos\.pages\.dev/,
-  );
-  if (match) {
-    return match[0];
+  for (const entry of entries) {
+    const fullPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      totalBytes += await getDirectorySize(fullPath);
+    } else if (entry.isFile()) {
+      const fileStat = await stat(fullPath);
+      totalBytes += fileStat.size;
+    }
   }
 
-  // Fallback: construct the deterministic branch-alias URL we passed to
-  // Wrangler (--branch <templateSlug> always produces this subdomain).
-  return `https://${templateSlug}.mashedgames-demos.pages.dev`;
+  return totalBytes;
 }
 
 // ---------------------------------------------------------------------------
@@ -229,9 +227,8 @@ export async function POST(request: NextRequest): Promise<Response> {
   );
 
   // Use pnpm via shell so Windows .cmd shims resolve correctly.
-  let runResult: RunResult;
   try {
-    runResult = await runCommand(
+    await runCommand(
       "pnpm",
       ["deploy:demo", templateSlug],
       repoRoot,
@@ -247,14 +244,58 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  // --- 6. Extract the deployed URL ---
-  const deployedUrl = extractDeployedUrl(runResult.stdout, templateSlug);
+  const finalUrl = `https://${templateSlug}.mashedgames-demos.pages.dev`;
 
   console.info(
-    `[deploy-demo] Deploy succeeded for slug="${templateSlug}" url="${deployedUrl}"`,
+    `[deploy-demo] Deploy succeeded for slug="${templateSlug}" url="${finalUrl}"`,
   );
 
-  // --- 7. Update manifest.demo_url in the templates table ---
+  // --- Measure deployed demo bundle size ---
+  const bundleDir = path.join(repoRoot, ".demo-dist", templateSlug);
+  let demoSizeKb: number | undefined;
+  try {
+    const bundleBytes = await getDirectorySize(bundleDir);
+    demoSizeKb = Math.round(bundleBytes / 1024);
+    console.info(
+      `[deploy-demo] Bundle size for slug="${templateSlug}": ${demoSizeKb} KB (${bundleDir})`,
+    );
+  } catch (err) {
+    console.error(
+      `[deploy-demo] WARNING: Deploy succeeded but failed to measure bundle size at ${bundleDir}:`,
+      err,
+    );
+  }
+
+  // --- Persist demo_url to local meta/template-meta.json (source of truth) ---
+  const metaJsonPath = resolveTemplateMetaJson(templateSlug);
+  try {
+    let metaRecord: Record<string, unknown> = {};
+    try {
+      const raw = await readFile(metaJsonPath, "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        metaRecord = parsed as Record<string, unknown>;
+      }
+    } catch {
+      await mkdir(resolveTemplateMetaDir(templateSlug), { recursive: true });
+    }
+
+    metaRecord.demo_url = finalUrl;
+    if (demoSizeKb !== undefined) {
+      metaRecord.demo_size_kb = demoSizeKb;
+    }
+    await writeFile(metaJsonPath, `${JSON.stringify(metaRecord, null, 2)}\n`, "utf8");
+    console.info(
+      `[deploy-demo] demo_url persisted to ${metaJsonPath}`,
+    );
+  } catch (err) {
+    console.error(
+      "[deploy-demo] WARNING: Deploy succeeded but failed to persist demo_url to meta file:",
+      err,
+    );
+  }
+
+  // --- Update manifest.demo_url in the templates table (immediate storefront refresh) ---
   const currentManifest =
     tpl.manifest !== null && typeof tpl.manifest === "object" && !Array.isArray(tpl.manifest)
       ? (tpl.manifest as Record<string, unknown>)
@@ -262,7 +303,8 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   const updatedManifest: Record<string, unknown> = {
     ...currentManifest,
-    demo_url: deployedUrl,
+    demo_url: finalUrl,
+    ...(demoSizeKb !== undefined ? { demo_size_kb: demoSizeKb } : {}),
   };
 
   const { error: updateError } = await serviceClient
@@ -271,8 +313,6 @@ export async function POST(request: NextRequest): Promise<Response> {
     .eq("id", tpl.id);
 
   if (updateError) {
-    // Non-fatal: the deploy itself succeeded. Log prominently but still return
-    // the URL so the admin can manually paste it if needed.
     console.error(
       "[deploy-demo] WARNING: Deploy succeeded but failed to persist demo_url to DB:",
       updateError,
@@ -283,5 +323,11 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  return Response.json<DeployResponse>({ ok: true, demo_url: deployedUrl });
+  revalidatePath("/", "layout");
+
+  return Response.json<DeployResponse>({
+    ok: true,
+    demo_url: finalUrl,
+    ...(demoSizeKb !== undefined ? { demo_size_kb: demoSizeKb } : {}),
+  });
 }

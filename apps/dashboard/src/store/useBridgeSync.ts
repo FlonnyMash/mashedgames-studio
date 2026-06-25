@@ -23,6 +23,7 @@ type DashboardMessenger = {
   ) => void;
   sendLoadTemplate: (templateId: GameTemplateId) => void;
   sendRuntimeAssets?: (assets: Record<string, string>) => void;
+  isEngineReady?: () => boolean;
   setTarget: (contentWindow: Window | null) => void;
   onEngineReady: (
     handler: (payload: { activeTemplateId: GameTemplateId }) => void,
@@ -55,25 +56,36 @@ export function useBridgeSync({
       return;
     }
 
-    const offReady = messenger.onEngineReady((payload) => {
+    const syncEngineReady = (activeTemplateId: GameTemplateId) => {
+      const wasReady = useConfigStore.getState().engineReady;
       useConfigStore.getState().setEngineReady(true);
       const contentWindow = iframeRef.current?.contentWindow ?? null;
       useConfigStore.getState().setIframeTarget(contentWindow);
       if (contentWindow) {
         messenger.setTarget(contentWindow);
       }
-      useTemplateBridgeStore
-        .getState()
-        .completeTemplateChange(payload.activeTemplateId);
-      messenger.reactivateAttachedIframe(
-        iframeRef.current?.contentWindow ?? null,
-        payload.activeTemplateId,
-      );
-      previewTemplateIdRef.current = payload.activeTemplateId;
-      flushConfigToIframe();
-      pushRuntimeAssetsToPreview();
-      pushConfigAssetsToPreview(useConfigStore.getState().config);
+      if (!wasReady) {
+        useTemplateBridgeStore
+          .getState()
+          .completeTemplateChange(activeTemplateId);
+        messenger.reactivateAttachedIframe(
+          iframeRef.current?.contentWindow ?? null,
+          activeTemplateId,
+        );
+        previewTemplateIdRef.current = activeTemplateId;
+        flushConfigToIframe();
+        pushRuntimeAssetsToPreview();
+        pushConfigAssetsToPreview(useConfigStore.getState().config);
+      }
+    };
+
+    const offReady = messenger.onEngineReady((payload) => {
+      syncEngineReady(payload.activeTemplateId);
     });
+
+    if (messenger.isEngineReady?.()) {
+      syncEngineReady(previewTemplateIdRef.current);
+    }
 
     let lastTemplateId = previewTemplateIdRef.current;
 
@@ -148,7 +160,10 @@ export function useBridgeSync({
 
     iframe.addEventListener("load", onLoad);
     if (iframe.contentDocument?.readyState === "complete") {
-      onLoad();
+      // Defer until sibling effects (e.g. window "message" listeners) have mounted.
+      queueMicrotask(() => {
+        onLoad();
+      });
     }
 
     return () => iframe.removeEventListener("load", onLoad);

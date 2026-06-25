@@ -18,6 +18,10 @@ export type TemplateMeta = {
   thumbnail: string;
   previews: string[];
   tutorial: string;
+  /** Cloudflare Pages demo URL — stored only in meta/, never bundled into exports. */
+  demo_url: string;
+  /** Deployed demo bundle size in kilobytes. */
+  demo_size_kb?: number;
 };
 
 export type TemplateMetaPatch = Partial<TemplateMeta>;
@@ -27,6 +31,7 @@ const EMPTY_META: TemplateMeta = {
   thumbnail: "",
   previews: [],
   tutorial: "",
+  demo_url: "",
 };
 
 const META_DIR_NAME = "meta";
@@ -71,6 +76,10 @@ export function readTemplateMeta(templateId: string): TemplateMeta {
       thumbnail: typeof parsed.thumbnail === "string" ? parsed.thumbnail : "",
       previews: Array.isArray(parsed.previews) ? parsed.previews.filter((p) => typeof p === "string") : [],
       tutorial: typeof parsed.tutorial === "string" ? parsed.tutorial : "",
+      demo_url: typeof parsed.demo_url === "string" ? parsed.demo_url : "",
+      ...(typeof parsed.demo_size_kb === "number" && Number.isFinite(parsed.demo_size_kb)
+        ? { demo_size_kb: parsed.demo_size_kb }
+        : {}),
     };
   } catch {
     return { ...EMPTY_META };
@@ -96,6 +105,8 @@ export function writeTemplateMeta(
       ...(typeof patch.tutorial === "string" ? { tutorial: patch.tutorial } : {}),
       ...(typeof patch.thumbnail === "string" ? { thumbnail: patch.thumbnail } : {}),
       ...(Array.isArray(patch.previews) ? { previews: patch.previews } : {}),
+      ...(typeof patch.demo_url === "string" ? { demo_url: patch.demo_url } : {}),
+      ...(typeof patch.demo_size_kb === "number" ? { demo_size_kb: patch.demo_size_kb } : {}),
     };
 
     writeFileSync(
