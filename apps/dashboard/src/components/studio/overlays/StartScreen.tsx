@@ -27,11 +27,13 @@ export function StartScreen({ config, messenger, disabled }: TemplateOverlayProp
 
   const handleStart = () => {
     if (disabled) return;
+    console.log("[StartScreen] START_GAME clicked");
     // Law #6: the command must cross the iframe boundary through the bridge
     // (postMessage ENGINE_CONTROL). A window.dispatchEvent on the host window
     // would never reach the engine. Only dismiss the overlay once the message
     // was actually delivered to the engine iframe.
     const delivered = messenger?.sendEngineControl("START_GAME") ?? false;
+    console.log("[StartScreen] START_GAME delivered:", delivered);
     if (!delivered) {
       if (process.env.NODE_ENV === "development") {
         console.warn(

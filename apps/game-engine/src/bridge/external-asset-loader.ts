@@ -6,7 +6,7 @@ import {
 import { engineMessenger } from "./messenger.ts";
 import Phaser from "phaser";
 import type { Game as PhaserGame } from "phaser";
-import { getStudioAssetUrl, withCacheBust } from "./asset-loader.ts";
+import { getStudioAssetUrl, normalizeDeployAssetUrl, withCacheBust } from "./asset-loader.ts";
 import { getParentTargetOrigin } from "./dashboard-origin.ts";
 
 function findLoadableScene(game: PhaserGame): Phaser.Scene | null {
@@ -23,15 +23,17 @@ function isWebResolvableAssetUrl(value: string): boolean {
     value.startsWith("http://") ||
     value.startsWith("https://") ||
     value.startsWith("./") ||
+    value.startsWith("../") ||
     value.startsWith("/")
   );
 }
 
+/** Normalize legacy demo-bundle paths that break under /engine/ iframes. */
 function resolveExternalAssetUrl(
   absolutePath: string,
   projectId?: string | null,
 ): string {
-  const normalized = absolutePath.replace(/\\/g, "/");
+  const normalized = normalizeDeployAssetUrl(absolutePath);
   if (isWebResolvableAssetUrl(normalized)) {
     return withCacheBust(normalized);
   }

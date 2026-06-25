@@ -12,6 +12,7 @@ export interface GameLifecycleStore {
   score: number;
   isPlaying: boolean;
   isGameOver: boolean;
+  isGameReady: boolean;
   applyEvent: (payload: GameLifecycleEventPayload) => void;
   reset: () => void;
 }
@@ -22,6 +23,7 @@ const initialState = {
   score: 0,
   isPlaying: false,
   isGameOver: false,
+  isGameReady: false,
 };
 
 export const useGameLifecycleStore = create<GameLifecycleStore>((set) => ({
@@ -50,7 +52,7 @@ export const useGameLifecycleStore = create<GameLifecycleStore>((set) => ({
         });
         break;
       case GAME_LIFECYCLE_EVENT_TYPE.ON_GAME_READY:
-        set({ ...initialState });
+        set({ ...initialState, isGameReady: true });
         break;
       default:
         break;

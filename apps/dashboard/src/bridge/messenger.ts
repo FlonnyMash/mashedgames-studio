@@ -7,6 +7,7 @@ import {
   EngineControlMessageSchema,
   EngineReadyMessageSchema,
   GameConfigSchema,
+  HostReadyMessageSchema,
   LoadExternalAssetPayloadSchema,
   SetRuntimeAssetsPayloadSchema,
   UpdateConfigMessageSchema,
@@ -224,6 +225,14 @@ class DashboardMessenger {
     return this.engineReady;
   }
 
+  /**
+   * Marks the engine as ready for outbound control commands when readiness was
+   * signalled via lifecycle (ON_GAME_READY) but ENGINE_READY was missed.
+   */
+  acknowledgeEngineReady(): void {
+    this.engineReady = true;
+  }
+
   onIframeNavigation(expectedTemplateId: GameTemplateId): void {
     this.engineReady = false;
     this.targetWindow = null;
@@ -437,13 +446,13 @@ class DashboardMessenger {
    * must not assume the action happened in that case.
    */
   sendEngineControl(action: EngineControlAction): boolean {
-    if (!this.engineReady || !this.targetWindow) {
-      devWarn(
-        "sendEngineControl dropped — engine iframe not ready",
-        { action },
-      );
+    if (!this.targetWindow || this.targetWindow === window) {
+      devWarn("sendEngineControl dropped — engine iframe not attached", {
+        action,
+      });
       return false;
     }
+
     const message = {
       type: BRIDGE_MESSAGE_TYPE.ENGINE_CONTROL,
       payload: { action },
@@ -451,7 +460,13 @@ class DashboardMessenger {
     if (isDev) {
       warnIfInvalid(EngineControlMessageSchema, message, "ENGINE_CONTROL");
     }
-    this.targetWindow.postMessage(message, getBridgePostMessageTargetOrigin());
+
+    console.log("[Dashboard Bridge] sendEngineControl", action, {
+      engineReady: this.engineReady,
+      targetOrigin: getBridgePostMessageTargetOrigin(),
+    });
+
+    postMessageToIframe(this.targetWindow, message, "ENGINE_CONTROL");
     return true;
   }
 
@@ -462,6 +477,25 @@ class DashboardMessenger {
       return;
     }
     this.pendingLoadTemplate = templateId;
+  }
+
+  /**
+   * Announces that the host bridge listeners are mounted. The engine uses this
+   * to (re)send ENGINE_READY and ON_GAME_READY when it booted before the host
+   * attached its message listener (common on fast static hosts like Cloudflare).
+   */
+  announceHostBridgeReady(templateId: GameTemplateId): void {
+    this.expectedTemplateId = templateId;
+    if (!this.targetWindow || this.targetWindow === window) {
+      return;
+    }
+
+    const message = {
+      type: BRIDGE_MESSAGE_TYPE.HOST_READY,
+      payload: { activeTemplateId: templateId },
+    };
+    warnIfInvalid(HostReadyMessageSchema, message, "HOST_READY");
+    postMessageToIframe(this.targetWindow, message, "HOST_READY");
   }
 
   private flush(): void {

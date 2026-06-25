@@ -22,21 +22,19 @@ export interface OverlayLayerProps {
  * immediate re-render. Each overlay component self-gates via its own
  * `showXxx` flag and returns null when disabled.
  *
- * `engineReady` is set exclusively when the engine iframe sends ENGINE_READY
- * via postMessage (handled by useBridgeSync → messenger.onEngineReady).  The
- * StartScreen CTA is disabled until that handshake completes, preventing
- * sendEngineControl from silently dropping the START_GAME action.
+ * `engineReady` is set when the engine iframe sends ENGINE_READY via postMessage
+ * (handled by useBridgeSync → messenger.onEngineReady). `isGameReady` mirrors
+ * ON_GAME_READY lifecycle events and covers delayed or re-sent handshakes.
+ * The StartScreen CTA unlocks when either signal is true.
  */
 export function OverlayLayer({ messenger }: OverlayLayerProps) {
   const config = useConfigStore((state) => state.config);
   const engineReady = useConfigStore((state) => state.engineReady);
+  const isGameReady = useGameLifecycleStore((state) => state.isGameReady);
+  const canStart = engineReady || isGameReady;
 
   useLayoutEffect(() => {
-    const offLifecycle = messenger.onGameLifecycleEvent((payload) => {
-      useGameLifecycleStore.getState().applyEvent(payload);
-    });
     return () => {
-      offLifecycle();
       useGameLifecycleStore.getState().reset();
     };
   }, [messenger]);
@@ -44,11 +42,11 @@ export function OverlayLayer({ messenger }: OverlayLayerProps) {
   return (
     <>
       <GameHud config={config} messenger={messenger} />
-      <StartScreen config={config} messenger={messenger} disabled={!engineReady} />
+      <StartScreen config={config} messenger={messenger} disabled={!canStart} />
       <PostGameScreen
         config={config}
         messenger={messenger}
-        disabled={!engineReady}
+        disabled={!canStart}
       />
     </>
   );

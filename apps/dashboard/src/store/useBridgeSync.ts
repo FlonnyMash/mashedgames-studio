@@ -5,8 +5,9 @@ import {
   pushRuntimeAssetsToPreview,
 } from "@/lib/preview-bridge-store";
 import { flushConfigToIframe, useConfigStore } from "@/store/useConfigStore";
+import { useGameLifecycleStore } from "@/store/useGameLifecycleStore";
 import { useTemplateBridgeStore } from "@/store/useTemplateBridgeStore";
-import { CONFIG_TEXTURE_FIELD_MAP, type AppMode, type GameTemplateId } from "@mashedgames/shared";
+import { CONFIG_TEXTURE_FIELD_MAP, type AppMode, type GameTemplateId, GAME_LIFECYCLE_EVENT_TYPE } from "@mashedgames/shared";
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 function isIframeDocumentReady(iframe: HTMLIFrameElement): boolean {
@@ -15,6 +16,14 @@ function isIframeDocumentReady(iframe: HTMLIFrameElement): boolean {
     return doc?.readyState === "complete";
   } catch {
     // Cross-origin — cannot inspect; rely on the load event.
+    return false;
+  }
+}
+
+function isIframeAboutBlank(iframe: HTMLIFrameElement): boolean {
+  try {
+    return iframe.contentWindow?.location.href === "about:blank";
+  } catch {
     return false;
   }
 }
@@ -33,10 +42,15 @@ type DashboardMessenger = {
   ) => void;
   sendLoadTemplate: (templateId: GameTemplateId) => void;
   sendRuntimeAssets?: (assets: Record<string, string>) => void;
+  announceHostBridgeReady?: (templateId: GameTemplateId) => void;
+  acknowledgeEngineReady?: () => void;
   isEngineReady?: () => boolean;
   setTarget: (contentWindow: Window | null) => void;
   onEngineReady: (
     handler: (payload: { activeTemplateId: GameTemplateId }) => void,
+  ) => () => void;
+  onGameLifecycleEvent?: (
+    handler: (payload: import("@mashedgames/shared").GameLifecycleEventPayload) => void,
   ) => () => void;
 };
 
@@ -46,6 +60,17 @@ export interface UseBridgeSyncOptions {
   suspended?: boolean;
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
   previewTemplateId: GameTemplateId;
+}
+
+function announceHostReady(
+  messenger: DashboardMessenger,
+  templateId: GameTemplateId,
+  iframe: HTMLIFrameElement | null,
+): void {
+  if (!iframe?.contentWindow || isIframeAboutBlank(iframe)) {
+    return;
+  }
+  messenger.announceHostBridgeReady?.(templateId);
 }
 
 export function useBridgeSync({
@@ -93,12 +118,27 @@ export function useBridgeSync({
       syncEngineReady(payload.activeTemplateId);
     });
 
+    const offLifecycle = messenger.onGameLifecycleEvent?.((payload) => {
+      useGameLifecycleStore.getState().applyEvent(payload);
+      if (payload.event === GAME_LIFECYCLE_EVENT_TYPE.ON_GAME_READY) {
+        useConfigStore.getState().setEngineReady(true);
+        messenger.acknowledgeEngineReady?.();
+      }
+    });
+
     if (messenger.isEngineReady?.()) {
       syncEngineReady(previewTemplateIdRef.current);
     }
 
+    announceHostReady(
+      messenger,
+      previewTemplateIdRef.current,
+      iframeRef.current,
+    );
+
     return () => {
       offReady();
+      offLifecycle?.();
     };
   }, [iframeRef, messenger, previewTemplateId, suspended]);
 
@@ -152,7 +192,7 @@ export function useBridgeSync({
     };
   }, [appMode, iframeRef, messenger, previewTemplateId, suspended]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (suspended) {
       return;
     }
@@ -162,28 +202,31 @@ export function useBridgeSync({
       return;
     }
 
-    const onLoad = () => {
+    const syncAfterIframeLoad = () => {
       const contentWindow = iframe.contentWindow;
       if (!contentWindow || contentWindow === window) {
         return;
       }
 
-      // Same-origin iframes expose about:blank with readyState "complete" before
-      // the real engine document loads — ignore that transient state.
-      if (isIframeDocumentReady(iframe) && iframe.contentWindow?.location.href === "about:blank") {
+      // Same-origin iframes briefly sit on about:blank before the engine URL loads.
+      if (isIframeAboutBlank(iframe)) {
         return;
       }
 
       const handshakeAlreadyComplete = messenger.isEngineReady?.() ?? false;
+      const lifecycleReady = useGameLifecycleStore.getState().isGameReady;
 
       useConfigStore.getState().setIframeTarget(contentWindow);
       messenger.setTarget(contentWindow);
 
-      if (handshakeAlreadyComplete) {
+      if (handshakeAlreadyComplete || lifecycleReady) {
         messenger.reactivateAttachedIframe(
           contentWindow,
           previewTemplateIdRef.current,
         );
+        if (lifecycleReady) {
+          messenger.acknowledgeEngineReady?.();
+        }
       } else {
         useConfigStore.getState().setEngineReady(false);
         messenger.initSync(contentWindow, previewTemplateIdRef.current);
@@ -192,15 +235,23 @@ export function useBridgeSync({
       flushConfigToIframe();
       pushRuntimeAssetsToPreview();
       pushConfigAssetsToPreview(useConfigStore.getState().config);
+      announceHostReady(messenger, previewTemplateIdRef.current, iframe);
       window.setTimeout(() => {
         flushConfigToIframe();
         pushRuntimeAssetsToPreview();
         pushConfigAssetsToPreview(useConfigStore.getState().config);
+        announceHostReady(messenger, previewTemplateIdRef.current, iframe);
       }, 150);
     };
 
-    iframe.addEventListener("load", onLoad);
+    iframe.addEventListener("load", syncAfterIframeLoad);
 
-    return () => iframe.removeEventListener("load", onLoad);
+    // Cached same-origin engine bundles (Cloudflare demo) can finish loading in
+    // the gap before this effect runs — the load event is then never replayed.
+    if (isIframeDocumentReady(iframe) && !isIframeAboutBlank(iframe)) {
+      queueMicrotask(syncAfterIframeLoad);
+    }
+
+    return () => iframe.removeEventListener("load", syncAfterIframeLoad);
   }, [appMode, iframeRef, messenger, previewTemplateId, suspended]);
 }

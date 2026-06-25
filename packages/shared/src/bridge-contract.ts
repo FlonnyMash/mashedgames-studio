@@ -21,6 +21,8 @@ export const BRIDGE_MESSAGE_TYPE = {
   GAME_LIFECYCLE_EVENT: "GAME_LIFECYCLE_EVENT",
   /** Dashboard → Engine. Imperative game-control commands (start, pause, reset). */
   ENGINE_CONTROL: "ENGINE_CONTROL",
+  /** Dashboard → Engine. Host bridge listeners are mounted — request ENGINE_READY / lifecycle resync. */
+  HOST_READY: "HOST_READY",
 } as const;
 
 export type BridgeMessageType =
@@ -129,6 +131,13 @@ export const EngineControlMessageSchema = z.object({
   }),
 });
 
+export const HostReadyMessageSchema = z.object({
+  type: z.literal(BRIDGE_MESSAGE_TYPE.HOST_READY),
+  payload: z.object({
+    activeTemplateId: z.string().min(1),
+  }),
+});
+
 export const BridgeMessageSchema = z.discriminatedUnion("type", [
   UpdateConfigMessageSchema,
   EngineReadyMessageSchema,
@@ -141,6 +150,7 @@ export const BridgeMessageSchema = z.discriminatedUnion("type", [
   ConfigUpdatedMessageSchema,
   GameLifecycleEventMessageSchema,
   EngineControlMessageSchema,
+  HostReadyMessageSchema,
 ]);
 
 export type UpdateConfigMessage = z.infer<typeof UpdateConfigMessageSchema>;
@@ -162,6 +172,7 @@ export type GameLifecycleEventMessage = z.infer<
   typeof GameLifecycleEventMessageSchema
 >;
 export type EngineControlMessage = z.infer<typeof EngineControlMessageSchema>;
+export type HostReadyMessage = z.infer<typeof HostReadyMessageSchema>;
 export type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 
 export function parseBridgeMessage(data: unknown): BridgeMessage | null {
@@ -215,6 +226,12 @@ export function isEngineControlMessage(
   message: BridgeMessage,
 ): message is EngineControlMessage {
   return message.type === BRIDGE_MESSAGE_TYPE.ENGINE_CONTROL;
+}
+
+export function isHostReadyMessage(
+  message: BridgeMessage,
+): message is HostReadyMessage {
+  return message.type === BRIDGE_MESSAGE_TYPE.HOST_READY;
 }
 
 export type { GameConfig };

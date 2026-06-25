@@ -72,7 +72,9 @@ function buildRuntimeAssets(templateDir, config) {
     }
 
     const fileName = relativePath.replace(/^assets\//, "");
-    runtimeAssets[relativePath] = `./game-assets/${fileName}`;
+    // Absolute site-root paths — the engine iframe lives at /engine/index.html so
+    // relative ./game-assets/ would incorrectly resolve to /engine/game-assets/.
+    runtimeAssets[relativePath] = `/game-assets/${fileName}`;
   }
 
   return runtimeAssets;

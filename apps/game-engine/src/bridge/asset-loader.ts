@@ -22,6 +22,18 @@ export function withCacheBust(url: string): string {
   return `${url}${sep}v=${Date.now()}`;
 }
 
+/** Demo bundles host assets at /game-assets/ while the engine iframe is under /engine/. */
+export function normalizeDeployAssetUrl(value: string): string {
+  const normalized = value.replace(/\\/g, "/");
+  if (normalized.startsWith("./game-assets/")) {
+    return normalized.slice(1);
+  }
+  if (normalized.startsWith("../game-assets/")) {
+    return normalized.slice(2);
+  }
+  return normalized;
+}
+
 export { isStudioAssetUrl, isProjectRelativeAssetPath, STUDIO_PROTOCOL };
 
 export function isProjectRelativeAsset(src: string): boolean {
@@ -69,12 +81,25 @@ export function resolveTextureUrl(
     return withCacheBust(getStudioAssetUrl(rel, ctx.projectId));
   }
 
-  if (isProjectRelativeAsset(src) && ctx.runtimeAssets?.[rel] && ctx.projectId) {
-    return withCacheBust(getStudioAssetUrl(rel, ctx.projectId));
+  if (isProjectRelativeAsset(src) && ctx.runtimeAssets?.[rel]) {
+    const mapped = ctx.runtimeAssets[rel];
+    if (
+      mapped.startsWith("http://") ||
+      mapped.startsWith("https://") ||
+      mapped.startsWith("/") ||
+      mapped.startsWith("./") ||
+      mapped.startsWith("../")
+    ) {
+      return withCacheBust(normalizeDeployAssetUrl(mapped));
+    }
   }
 
   if (src.startsWith("http://") || src.startsWith("https://")) {
     return src;
+  }
+
+  if (src.startsWith("/") || src.startsWith("./") || src.startsWith("../")) {
+    return withCacheBust(src);
   }
 
   return "";

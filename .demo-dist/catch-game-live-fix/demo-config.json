@@ -73,7 +73,7 @@
     "badFallSpeedMax": 260
   },
   "runtimeAssets": {
-    "assets/1ce7f2cb-MashedGamesStudioLogo.png": "/game-assets/1ce7f2cb-MashedGamesStudioLogo.png",
-    "assets/a38c2cbc-bomb.png": "/game-assets/a38c2cbc-bomb.png"
+    "assets/1ce7f2cb-MashedGamesStudioLogo.png": "./game-assets/1ce7f2cb-MashedGamesStudioLogo.png",
+    "assets/a38c2cbc-bomb.png": "./game-assets/a38c2cbc-bomb.png"
   }
 }

@@ -2,6 +2,7 @@ import {
   BRIDGE_MESSAGE_TYPE,
   BridgeMessageSchema,
   ConfigSyncPayloadSchema,
+  GAME_LIFECYCLE_EVENT_TYPE,
   GameConfigSchema,
   GameLifecycleEventPayloadSchema,
   LoadExternalAssetPayloadSchema,
@@ -84,8 +85,11 @@ export class EngineMessenger {
   private started = false;
   private boundListener: ((event: MessageEvent) => void) | null = null;
   private standaloneReadyRetryTimers: number[] = [];
+  private standaloneLifecycleRetryTimers: number[] = [];
   private hostConfigReceived = false;
+  private hostBridgeReceived = false;
   private phaserBooted = false;
+  private pendingGameReadyLifecycle: GameLifecycleEventPayload | null = null;
 
   start(handlers: EngineBridgeHandlers): void {
     if (this.started) return;
@@ -108,7 +112,7 @@ export class EngineMessenger {
 
   sendEngineReady(): void {
     if (isStandaloneBridge()) {
-      if (!this.hostConfigReceived || !this.phaserBooted) {
+      if (!this.phaserBooted || !this.hasHostHandshake()) {
         return;
       }
     }
@@ -125,11 +129,26 @@ export class EngineMessenger {
   notifyPhaserBooted(): void {
     this.phaserBooted = true;
     this.sendEngineReady();
+    this.resendGameLifecycleReadyIfBooted();
+  }
+
+  private hasHostHandshake(): boolean {
+    return this.hostConfigReceived || this.hostBridgeReceived;
+  }
+
+  private notifyHostHandshake(): void {
+    this.sendEngineReady();
+    this.resendGameLifecycleReadyIfBooted();
   }
 
   private markHostConfigReceived(): void {
     this.hostConfigReceived = true;
-    this.sendEngineReady();
+    this.notifyHostHandshake();
+  }
+
+  private markHostBridgeReceived(): void {
+    this.hostBridgeReceived = true;
+    this.notifyHostHandshake();
   }
 
   private postEngineReady(): void {
@@ -183,21 +202,71 @@ export class EngineMessenger {
   }
 
   sendGameLifecycleEvent(payload: GameLifecycleEventPayload): void {
-    const outbound = resolveOutboundBridgeTarget();
-    if (!outbound) return;
-
     const parsed = GameLifecycleEventPayloadSchema.safeParse(payload);
     if (!parsed.success) {
       return;
     }
 
+    if (
+      isStandaloneBridge() &&
+      parsed.data.event === GAME_LIFECYCLE_EVENT_TYPE.ON_GAME_READY &&
+      !this.hasHostHandshake()
+    ) {
+      this.pendingGameReadyLifecycle = parsed.data;
+      return;
+    }
+
+    this.postGameLifecycleEvent(parsed.data);
+  }
+
+  private postGameLifecycleEvent(payload: GameLifecycleEventPayload): void {
+    const outbound = resolveOutboundBridgeTarget();
+    if (!outbound) return;
+
     outbound.target.postMessage(
       {
         type: BRIDGE_MESSAGE_TYPE.GAME_LIFECYCLE_EVENT,
-        payload: parsed.data,
+        payload,
       },
       outbound.origin,
     );
+  }
+
+  private clearGameLifecycleReadyRetries(): void {
+    for (const timerId of this.standaloneLifecycleRetryTimers) {
+      window.clearTimeout(timerId);
+    }
+    this.standaloneLifecycleRetryTimers = [];
+  }
+
+  private scheduleGameLifecycleReadyRetries(
+    payload: GameLifecycleEventPayload,
+    delaysMs: number[] = [50, 150, 400, 1000, 2000],
+  ): void {
+    this.clearGameLifecycleReadyRetries();
+    for (const delayMs of delaysMs) {
+      const timerId = window.setTimeout(() => {
+        this.postGameLifecycleEvent(payload);
+      }, delayMs);
+      this.standaloneLifecycleRetryTimers.push(timerId);
+    }
+  }
+
+  private resendGameLifecycleReadyIfBooted(): void {
+    if (!this.phaserBooted || !this.hasHostHandshake()) {
+      return;
+    }
+
+    const payload =
+      this.pendingGameReadyLifecycle ?? {
+        event: GAME_LIFECYCLE_EVENT_TYPE.ON_GAME_READY,
+        timestamp: Date.now(),
+      };
+    this.pendingGameReadyLifecycle = null;
+    this.postGameLifecycleEvent(payload);
+    if (isStandaloneBridge()) {
+      this.scheduleGameLifecycleReadyRetries(payload);
+    }
   }
 
   private notifyConfigUpdate(config: GameConfig): void {
@@ -208,8 +277,12 @@ export class EngineMessenger {
   }
 
   private handleMessage(event: MessageEvent): void {
-    if (!isAllowedInboundMessageSource(event.source)) return;
+    if (!isAllowedInboundMessageSource(event.source)) {
+      console.log("[Engine Bridge] rejected message source");
+      return;
+    }
     if (!isAllowedDashboardOrigin(event.origin)) {
+      console.log("[Engine Bridge] rejected origin", event.origin);
       return;
     }
 
@@ -218,6 +291,17 @@ export class EngineMessenger {
       return;
     }
     const message = parsedMessage.data;
+
+    if (message.type === BRIDGE_MESSAGE_TYPE.ENGINE_CONTROL) {
+      console.log("[Engine Bridge] inbound message", message.type, message.payload);
+      this.handleEngineControl(message.payload.action);
+      return;
+    }
+
+    if (message.type === BRIDGE_MESSAGE_TYPE.HOST_READY) {
+      this.markHostBridgeReceived();
+      return;
+    }
 
     const handlers = this.handlers;
     if (!handlers) return;
@@ -285,16 +369,14 @@ export class EngineMessenger {
         this.markHostConfigReceived();
         break;
       }
-      case BRIDGE_MESSAGE_TYPE.ENGINE_CONTROL: {
-        this.handleEngineControl(message.payload.action);
-        break;
-      }
       default:
         break;
     }
   }
 
   private handleEngineControl(action: EngineControlAction): void {
+    console.log("[Engine Bridge] handleEngineControl", action);
+
     // Broadcast as a DOM CustomEvent so any non-Phaser listener can react.
     window.dispatchEvent(new CustomEvent("engine:control", { detail: { action } }));
 
