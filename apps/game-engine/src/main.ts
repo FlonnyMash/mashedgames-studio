@@ -48,13 +48,13 @@ function onPhaserGameReady(phaserGame: Phaser.Game): void {
   phaserGame.events.emit("bridge:config-update", latestConfig);
   applyOverlayConfig(latestConfig);
   bindSceneLifecycleBridge(phaserGame);
-  engineMessenger.sendEngineReady();
+  engineMessenger.notifyPhaserBooted();
 }
 
 async function ensureGame(): Promise<Phaser.Game> {
   if (game) {
     if (game.isBooted) {
-      engineMessenger.sendEngineReady();
+      engineMessenger.notifyPhaserBooted();
     }
     return game;
   }

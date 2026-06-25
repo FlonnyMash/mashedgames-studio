@@ -1,8 +1,5 @@
 import { OverlayLayer } from "@/components/studio/overlays/OverlayLayer";
-import {
-  createDashboardMessenger,
-  resolveGameEnginePreviewUrl,
-} from "@/bridge/messenger";
+import { createDashboardMessenger } from "@/bridge/messenger";
 import { usePreviewBridgeStore } from "@/lib/preview-bridge-store";
 import { useBridgeSync } from "@/store/useBridgeSync";
 import { useConfigStore } from "@/store/useConfigStore";
@@ -21,7 +18,12 @@ export function DemoPlayerApp({ payload }: DemoPlayerAppProps) {
 
   const templateId = payload.templateId as GameTemplateId;
   const iframeSrc = useMemo(() => {
-    const url = new URL(resolveGameEnginePreviewUrl(templateId, "studio"));
+    // Always load the co-deployed engine bundle on the same origin. Relying on
+    // resolveGameEnginePreviewUrl() breaks in the Vite demo shell when dynamic
+    // process.env reads compile away and fall back to localhost:5173.
+    const url = new URL("./engine/index.html", window.location.href);
+    url.searchParams.set("game", templateId);
+    url.searchParams.set("appMode", "studio");
     url.searchParams.set("bridge", "standalone");
     return url.toString();
   }, [templateId]);
@@ -32,7 +34,7 @@ export function DemoPlayerApp({ payload }: DemoPlayerAppProps) {
     usePreviewBridgeStore.getState().setRuntimeAssets(payload.runtimeAssets);
   }, [payload, templateId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) {
       return;

@@ -32,7 +32,7 @@ export type EngineBridgeHandlers = {
 let currentTemplateId: GameTemplateId = "default";
 
 /** Materialized Cloudflare demo shell: React host + engine iframe on one origin. */
-function isStandaloneBridge(): boolean {
+export function isStandaloneBridge(): boolean {
   const bridge = new URLSearchParams(window.location.search).get("bridge");
   if (bridge === "standalone") return true;
   if (bridge === "dashboard") return false;
@@ -84,6 +84,8 @@ export class EngineMessenger {
   private started = false;
   private boundListener: ((event: MessageEvent) => void) | null = null;
   private standaloneReadyRetryTimers: number[] = [];
+  private hostConfigReceived = false;
+  private phaserBooted = false;
 
   start(handlers: EngineBridgeHandlers): void {
     if (this.started) return;
@@ -105,12 +107,29 @@ export class EngineMessenger {
   }
 
   sendEngineReady(): void {
+    if (isStandaloneBridge()) {
+      if (!this.hostConfigReceived || !this.phaserBooted) {
+        return;
+      }
+    }
+
     this.postEngineReady();
     if (isStandaloneBridge()) {
-      this.scheduleEngineReadyRetries([50, 150, 400, 1000, 2000]);
+      this.scheduleEngineReadyRetries([50, 150, 400, 1000, 2000, 4000, 8000]);
     } else {
       this.scheduleEngineReadyRetries([150, 600, 1200]);
     }
+  }
+
+  /** Called from main.ts once Phaser fires its "ready" event. */
+  notifyPhaserBooted(): void {
+    this.phaserBooted = true;
+    this.sendEngineReady();
+  }
+
+  private markHostConfigReceived(): void {
+    this.hostConfigReceived = true;
+    this.sendEngineReady();
   }
 
   private postEngineReady(): void {
@@ -149,12 +168,6 @@ export class EngineMessenger {
     }
   }
 
-  private maybeResendEngineReadyAfterConfig(): void {
-    const game = this.handlers?.getGame();
-    if (game?.isBooted) {
-      this.postEngineReady();
-    }
-  }
 
   sendAssetLoadError(payload: AssetLoadErrorPayload): void {
     const outbound = resolveOutboundBridgeTarget();
@@ -220,7 +233,7 @@ export class EngineMessenger {
         if (game) {
           game.events.emit("bridge:config-update", parsed.data);
         }
-        this.maybeResendEngineReadyAfterConfig();
+        this.markHostConfigReceived();
         break;
       }
       case BRIDGE_MESSAGE_TYPE.LOAD_TEMPLATE: {
@@ -249,6 +262,7 @@ export class EngineMessenger {
         const parsed = SetRuntimeAssetsPayloadSchema.safeParse(message.payload);
         if (!parsed.success) break;
         setRuntimeAssets(parsed.data.assets);
+        this.markHostConfigReceived();
         break;
       }
       case BRIDGE_MESSAGE_TYPE.CONFIG_UPDATED: {
@@ -268,6 +282,7 @@ export class EngineMessenger {
         if (game) {
           game.events.emit("bridge:config-update", nextConfig);
         }
+        this.markHostConfigReceived();
         break;
       }
       case BRIDGE_MESSAGE_TYPE.ENGINE_CONTROL: {

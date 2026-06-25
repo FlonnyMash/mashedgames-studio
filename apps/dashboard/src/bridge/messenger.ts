@@ -56,6 +56,13 @@ function warnIfInvalid(
 const DEV_GAME_ENGINE_URL =
   process.env.NEXT_PUBLIC_GAME_ENGINE_URL ?? "http://localhost:5173";
 
+function isEmbeddedEnginePreview(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  return getGameEngineOrigin() === window.location.origin;
+}
+
 export function getGameEngineOrigin(): string {
   if (typeof window === "undefined") {
     return new URL(DEV_GAME_ENGINE_URL).origin;
@@ -70,8 +77,16 @@ export function getGameEngineOrigin(): string {
 }
 
 export function getBridgePostMessageTargetOrigin(): string {
+  if (typeof window === "undefined") {
+    return getGameEngineOrigin();
+  }
   if (isDev) {
-    return "*";
+    // Cross-origin dev preview: dashboard :3000 → engine :5173
+    return getGameEngineOrigin();
+  }
+  if (isEmbeddedEnginePreview()) {
+    // Same-origin embedded engine (Cloudflare demo shell, Electron package)
+    return window.location.origin;
   }
   return getGameEngineOrigin();
 }
@@ -91,6 +106,13 @@ export function resolveGameEnginePreviewUrl(
   return url.toString();
 }
 
+function isMashedGamesDemoHost(hostname: string): boolean {
+  return (
+    hostname === "mashedgames-demos.pages.dev" ||
+    hostname.endsWith(".mashedgames-demos.pages.dev")
+  );
+}
+
 function isAllowedEngineMessageOrigin(origin: string): boolean {
   if (typeof window !== "undefined" && origin === window.location.origin) {
     return true;
@@ -98,15 +120,24 @@ function isAllowedEngineMessageOrigin(origin: string): boolean {
   if (origin === getGameEngineOrigin()) {
     return true;
   }
-  if (!isDev) {
-    return false;
+  if (isDev && origin === new URL(DEV_GAME_ENGINE_URL).origin) {
+    return true;
   }
   try {
-    const { hostname } = new URL(origin);
-    return hostname === "localhost" || hostname === "127.0.0.1";
+    const { hostname, protocol } = new URL(origin);
+    if (protocol !== "http:" && protocol !== "https:") {
+      return false;
+    }
+    if (isMashedGamesDemoHost(hostname)) {
+      return true;
+    }
+    if (isDev) {
+      return hostname === "localhost" || hostname === "127.0.0.1";
+    }
   } catch {
     return false;
   }
+  return false;
 }
 
 function postMessageToIframe(

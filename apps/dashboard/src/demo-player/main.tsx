@@ -4,11 +4,23 @@ import bakedPayload from "./demo-config.baked.json";
 import type { DemoConfigPayload } from "./types";
 import "./demo.css";
 
-const payload = bakedPayload as DemoConfigPayload;
+async function loadDemoPayload(): Promise<DemoConfigPayload> {
+  try {
+    const response = await fetch("./demo-config.json", { cache: "no-store" });
+    if (response.ok) {
+      return (await response.json()) as DemoConfigPayload;
+    }
+  } catch {
+    // Local demo-player dev may not have demo-config.json on disk.
+  }
+  return bakedPayload as DemoConfigPayload;
+}
 
 const root = document.getElementById("root");
 if (!root) {
   throw new Error("Missing #root mount point.");
 }
 
-createRoot(root).render(<DemoPlayerApp payload={payload} />);
+void loadDemoPayload().then((payload) => {
+  createRoot(root).render(<DemoPlayerApp payload={payload} />);
+});

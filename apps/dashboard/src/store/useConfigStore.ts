@@ -1,6 +1,7 @@
 "use client";
 
 import { dashboardMessenger, getBridgePostMessageTargetOrigin } from "@/bridge/messenger";
+import { usePreviewBridgeStore } from "@/lib/preview-bridge-store";
 import {
   applyTemplateConfigDefaults,
   BASELINE_TEMPLATE_ID,
@@ -180,5 +181,8 @@ useConfigStore.subscribe((state, prev) => {
 });
 
 export function flushConfigToIframe(): void {
-  postConfigToIframe(useConfigStore.getState().config);
+  const config = useConfigStore.getState().config;
+  postConfigToIframe(config);
+  const previewMessenger = usePreviewBridgeStore.getState().messenger;
+  previewMessenger?.sendUpdateConfig(config);
 }

@@ -24,6 +24,7 @@ export default defineConfig({
     "process.env.NODE_ENV": JSON.stringify("production"),
     "process.env.NEXT_PUBLIC_GAME_ENGINE_URL": JSON.stringify(""),
     "process.env.NEXT_PUBLIC_WORKSPACE_DESKTOP": JSON.stringify(""),
+    "process.env.NEXT_PUBLIC_APP_MODE": JSON.stringify("studio"),
   },
   server: {
     fs: {

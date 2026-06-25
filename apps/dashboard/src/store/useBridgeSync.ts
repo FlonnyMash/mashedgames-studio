@@ -7,7 +7,17 @@ import {
 import { flushConfigToIframe, useConfigStore } from "@/store/useConfigStore";
 import { useTemplateBridgeStore } from "@/store/useTemplateBridgeStore";
 import { CONFIG_TEXTURE_FIELD_MAP, type AppMode, type GameTemplateId } from "@mashedgames/shared";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
+
+function isIframeDocumentReady(iframe: HTMLIFrameElement): boolean {
+  try {
+    const doc = iframe.contentDocument;
+    return doc?.readyState === "complete";
+  } catch {
+    // Cross-origin — cannot inspect; rely on the load event.
+    return false;
+  }
+}
 
 type DashboardMessenger = {
   initSync: (contentWindow: Window | null, templateId: GameTemplateId) => void;
@@ -51,7 +61,7 @@ export function useBridgeSync({
     previewTemplateIdRef.current = previewTemplateId;
   }, [previewTemplateId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (suspended) {
       return;
     }
@@ -85,6 +95,16 @@ export function useBridgeSync({
 
     if (messenger.isEngineReady?.()) {
       syncEngineReady(previewTemplateIdRef.current);
+    }
+
+    return () => {
+      offReady();
+    };
+  }, [iframeRef, messenger, previewTemplateId, suspended]);
+
+  useEffect(() => {
+    if (suspended) {
+      return;
     }
 
     let lastTemplateId = previewTemplateIdRef.current;
@@ -125,7 +145,6 @@ export function useBridgeSync({
     }
 
     return () => {
-      offReady();
       unsubscribeConfig();
       useConfigStore.getState().setEngineReady(false);
       useConfigStore.getState().setIframeTarget(null);
@@ -144,27 +163,43 @@ export function useBridgeSync({
     }
 
     const onLoad = () => {
-      useConfigStore.getState().setEngineReady(false);
       const contentWindow = iframe.contentWindow;
-      useConfigStore.getState().setIframeTarget(contentWindow ?? null);
-      messenger.setTarget(contentWindow ?? null);
-      messenger.initSync(contentWindow ?? null, previewTemplateIdRef.current);
+      if (!contentWindow || contentWindow === window) {
+        return;
+      }
+
+      // Same-origin iframes expose about:blank with readyState "complete" before
+      // the real engine document loads — ignore that transient state.
+      if (isIframeDocumentReady(iframe) && iframe.contentWindow?.location.href === "about:blank") {
+        return;
+      }
+
+      const handshakeAlreadyComplete = messenger.isEngineReady?.() ?? false;
+
+      useConfigStore.getState().setIframeTarget(contentWindow);
+      messenger.setTarget(contentWindow);
+
+      if (handshakeAlreadyComplete) {
+        messenger.reactivateAttachedIframe(
+          contentWindow,
+          previewTemplateIdRef.current,
+        );
+      } else {
+        useConfigStore.getState().setEngineReady(false);
+        messenger.initSync(contentWindow, previewTemplateIdRef.current);
+      }
+
       flushConfigToIframe();
       pushRuntimeAssetsToPreview();
       pushConfigAssetsToPreview(useConfigStore.getState().config);
       window.setTimeout(() => {
         flushConfigToIframe();
         pushRuntimeAssetsToPreview();
+        pushConfigAssetsToPreview(useConfigStore.getState().config);
       }, 150);
     };
 
     iframe.addEventListener("load", onLoad);
-    if (iframe.contentDocument?.readyState === "complete") {
-      // Defer until sibling effects (e.g. window "message" listeners) have mounted.
-      queueMicrotask(() => {
-        onLoad();
-      });
-    }
 
     return () => iframe.removeEventListener("load", onLoad);
   }, [appMode, iframeRef, messenger, previewTemplateId, suspended]);

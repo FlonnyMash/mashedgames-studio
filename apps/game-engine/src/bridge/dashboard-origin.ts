@@ -26,11 +26,25 @@ export function getParentTargetOrigin(): string {
       // fall through
     }
   }
-  return getDashboardOrigin() ?? "*";
+  const configured = getDashboardOrigin();
+  if (configured) {
+    return configured;
+  }
+  if (import.meta.env.DEV) {
+    return DEFAULT_DASHBOARD_ORIGIN;
+  }
+  return "*";
 }
 
 function isLocalDashboardHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1";
+}
+
+function isMashedGamesDemoHost(hostname: string): boolean {
+  return (
+    hostname === "mashedgames-demos.pages.dev" ||
+    hostname.endsWith(".mashedgames-demos.pages.dev")
+  );
 }
 
 export function isAllowedDashboardOrigin(origin: string): boolean {
@@ -50,10 +64,13 @@ export function isAllowedDashboardOrigin(origin: string): boolean {
     if (import.meta.env.DEV) {
       return (
         isLocalDashboardHost(url.hostname) ||
+        isMashedGamesDemoHost(url.hostname) ||
         origin === DEFAULT_DASHBOARD_ORIGIN
       );
     }
-    return isLocalDashboardHost(url.hostname);
+    return (
+      isLocalDashboardHost(url.hostname) || isMashedGamesDemoHost(url.hostname)
+    );
   } catch {
     return false;
   }

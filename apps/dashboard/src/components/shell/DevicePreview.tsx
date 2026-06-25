@@ -12,7 +12,7 @@ import { OverlayLayer } from "@/components/studio/overlays/OverlayLayer";
 import { useBridgeSync } from "@/store/useBridgeSync";
 import { useConfigStore } from "@/store/useConfigStore";
 import type { AppMode, GameTemplateId } from "@mashedgames/shared";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 const PHONE_FRAME_WIDTH = 390;
 const PHONE_FRAME_HEIGHT = 844;
@@ -51,7 +51,7 @@ export function DevicePreview({
     return resolveGameEnginePreviewUrl(activeTemplateId, appMode);
   }, [activeTemplateId, appMode]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (suspended) {
       return;
     }
@@ -66,12 +66,6 @@ export function DevicePreview({
       if (!contentWindow || contentWindow === window) {
         return;
       }
-      // Only bind the postMessage target here.  engineReady must NOT be set
-      // to true until the engine iframe confirms readiness via ENGINE_READY
-      // postMessage (handled by useBridgeSync → messenger.onEngineReady).
-      // Setting it here (on iframe "load") creates a race where the React
-      // StartScreen button is enabled before messenger.engineReady is true,
-      // causing sendEngineControl to drop the START_GAME action.
       useConfigStore.getState().setIframeTarget(contentWindow);
       messenger.setTarget(contentWindow);
     };
@@ -92,7 +86,7 @@ export function DevicePreview({
     }
   }, [initialTemplateId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (suspended) {
       return;
     }

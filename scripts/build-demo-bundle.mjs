@@ -151,6 +151,13 @@ export function buildDemoBundle(templateSlug, outDir) {
     throw new Error("Engine build failed.");
   }
 
+  const demoConfigJson = `${JSON.stringify(demoConfig, null, 2)}\n`;
+  fs.writeFileSync(
+    path.join(dashboardRoot, "demo-player", "demo-config.json"),
+    demoConfigJson,
+    "utf8",
+  );
+
   console.log(`[build-demo-bundle] Building demo shell into ${resolvedOutDir}`);
   const shellResult = run(
     "pnpm",
@@ -181,11 +188,7 @@ export function buildDemoBundle(templateSlug, outDir) {
     console.log(`[build-demo-bundle] No template assets/ folder — skipping game-assets copy.`);
   }
 
-  fs.writeFileSync(
-    path.join(resolvedOutDir, "demo-config.json"),
-    `${JSON.stringify(demoConfig, null, 2)}\n`,
-    "utf8",
-  );
+  fs.writeFileSync(path.join(resolvedOutDir, "demo-config.json"), demoConfigJson, "utf8");
   writeCloudflareHeaders(resolvedOutDir);
 
   console.log(`[build-demo-bundle] Wrote demo-config.json`);

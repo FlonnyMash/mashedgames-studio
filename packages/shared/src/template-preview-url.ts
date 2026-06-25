@@ -3,13 +3,65 @@ export const DESKTOP_BUNDLED_TEMPLATE_ID = "default";
 
 function readEnv(key: string): string | undefined {
   if (typeof process !== "undefined" && process.env) {
-    return process.env[key];
+    const direct = process.env[key as keyof NodeJS.ProcessEnv];
+    if (typeof direct === "string") {
+      return direct;
+    }
   }
-  return undefined;
+
+  // Vite demo-shell / game-engine bundles inline import.meta.env at build time.
+  try {
+    const env = (import.meta as ImportMeta & { env?: Record<string, unknown> })
+      .env;
+    if (!env) {
+      return undefined;
+    }
+    if (key === "NODE_ENV") {
+      if (env.PROD === true) {
+        return "production";
+      }
+      if (env.DEV === true) {
+        return "development";
+      }
+      if (typeof env.MODE === "string") {
+        return env.MODE;
+      }
+    }
+    const vitePublicKey = key.startsWith("NEXT_PUBLIC_")
+      ? `VITE_${key.slice("NEXT_PUBLIC_".length)}`
+      : key;
+    const candidate = env[vitePublicKey] ?? env[key];
+    return typeof candidate === "string" ? candidate : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isProductionEnv(): boolean {
-  return readEnv("NODE_ENV") === "production";
+  if (typeof process !== "undefined" && process.env?.NODE_ENV) {
+    return process.env.NODE_ENV === "production";
+  }
+  try {
+    return (
+      (import.meta as ImportMeta & { env?: { PROD?: boolean } }).env?.PROD ===
+      true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isDevelopmentEnv(): boolean {
+  if (typeof process !== "undefined" && process.env?.NODE_ENV) {
+    return process.env.NODE_ENV === "development";
+  }
+  try {
+    return (
+      (import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV === true
+    );
+  } catch {
+    return false;
+  }
 }
 
 function hasElectronPreload(): boolean {
@@ -49,18 +101,28 @@ export function getDesktopBundledTemplateIds(): string[] | null {
  * Base URL for static game-engine assets embedded under `/engine`.
  */
 export function resolveGameEngineBaseUrl(): string {
-  const devUrl = (
-    readEnv("NEXT_PUBLIC_GAME_ENGINE_URL") ?? "http://localhost:5173"
-  ).replace(/\/$/, "");
+  const devUrlRaw = readEnv("NEXT_PUBLIC_GAME_ENGINE_URL");
+  const devUrl = (devUrlRaw ?? "http://localhost:5173").replace(/\/$/, "");
+
+  // Next.js dev always uses the cross-origin Vite server — never embedded /engine.
+  if (isDevelopmentEnv()) {
+    if (typeof window !== "undefined") {
+      return devUrl;
+    }
+    return devUrl;
+  }
+
+  const useEmbeddedEngine =
+    isDesktopRuntime() || isProductionEnv() || devUrl === "/engine";
 
   if (typeof window !== "undefined") {
-    if (isDesktopRuntime() || isProductionEnv()) {
+    if (useEmbeddedEngine) {
       return `${window.location.origin}/engine`;
     }
     return devUrl;
   }
 
-  if (isDesktopRuntime() || isProductionEnv()) {
+  if (useEmbeddedEngine) {
     return "/engine";
   }
 

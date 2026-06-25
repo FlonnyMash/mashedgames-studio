@@ -6,7 +6,7 @@ import type { createDashboardMessenger } from "@/bridge/messenger";
 import { GameHud } from "./GameHud";
 import { PostGameScreen } from "./PostGameScreen";
 import { StartScreen } from "./StartScreen";
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 
 type DashboardMessenger = ReturnType<typeof createDashboardMessenger>;
 
@@ -31,7 +31,7 @@ export function OverlayLayer({ messenger }: OverlayLayerProps) {
   const config = useConfigStore((state) => state.config);
   const engineReady = useConfigStore((state) => state.engineReady);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const offLifecycle = messenger.onGameLifecycleEvent((payload) => {
       useGameLifecycleStore.getState().applyEvent(payload);
     });
