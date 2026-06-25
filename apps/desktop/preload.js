@@ -15,6 +15,7 @@ const ALLOWED_CHANNELS = new Set([
   "admin:provision-license",
   "license:check-eligibility",
   "store:load-catalog",
+  "store:acquire-license",
   // Electron auto-updater
   "updater:check",
   "updater:download",

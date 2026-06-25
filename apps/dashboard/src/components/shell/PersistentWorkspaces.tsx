@@ -69,6 +69,12 @@ function PersistentWorkspacesInner({ children }: { children: ReactNode }) {
     rehydrateWorkspaceSessionFromStorage();
   }, []);
 
+  useLayoutEffect(() => {
+    if (pathname === "/studio/templates") {
+      useWorkspaceSessionStore.getState().acknowledgeStudioSessionSuppression();
+    }
+  }, [pathname]);
+
   if (!sessionHydrated) {
     return <WorkspaceRouteShell>{children}</WorkspaceRouteShell>;
   }

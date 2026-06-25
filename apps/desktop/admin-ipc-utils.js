@@ -147,4 +147,4 @@ function registerAdminIpc(getSession, getDashboardBaseUrl, refreshSession) {
   ipcMain.handle("admin:provision-license", handleAdminProvisionLicense);
 }
 
-module.exports = { registerAdminIpc };
+module.exports = { registerAdminIpc, callDashboardApi };

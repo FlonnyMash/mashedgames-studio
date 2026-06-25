@@ -46,10 +46,17 @@ function writeStorage(snapshot: SessionSnapshot): void {
 interface WorkspaceSessionStore extends SessionSnapshot {
   /** False until sessionStorage is read on the client (keeps SSR and hydration aligned). */
   sessionHydrated: boolean;
+  /**
+   * True after exit until the user lands on the template list or opens a template.
+   * Prevents StudioTemplateGate from re-binding a stale ?template= URL before
+   * router.replace("/studio/templates") completes.
+   */
+  studioSessionSuppressed: boolean;
   setActiveStudioTemplate: (templateId: string | null) => void;
   setActiveConfiguratorProject: (projectId: string | null) => void;
   clearStudioSession: () => void;
   clearConfiguratorSession: () => void;
+  acknowledgeStudioSessionSuppression: () => void;
 }
 
 const emptySession: SessionSnapshot = {
@@ -73,10 +80,14 @@ export const useWorkspaceSessionStore = create<WorkspaceSessionStore>((set, get)
   activeStudioTemplateId: emptySession.activeStudioTemplateId,
   activeConfiguratorProjectId: emptySession.activeConfiguratorProjectId,
   sessionHydrated: false,
+  studioSessionSuppressed: false,
 
   setActiveStudioTemplate: (templateId) => {
     const next = { ...get(), activeStudioTemplateId: templateId };
-    set({ activeStudioTemplateId: templateId });
+    set({
+      activeStudioTemplateId: templateId,
+      studioSessionSuppressed: templateId === null ? get().studioSessionSuppressed : false,
+    });
     writeStorage({
       activeStudioTemplateId: templateId,
       activeConfiguratorProjectId: next.activeConfiguratorProjectId,
@@ -93,11 +104,22 @@ export const useWorkspaceSessionStore = create<WorkspaceSessionStore>((set, get)
   },
 
   clearStudioSession: () => {
-    get().setActiveStudioTemplate(null);
+    const next = { ...get(), activeStudioTemplateId: null };
+    set({ activeStudioTemplateId: null, studioSessionSuppressed: true });
+    writeStorage({
+      activeStudioTemplateId: null,
+      activeConfiguratorProjectId: next.activeConfiguratorProjectId,
+    });
   },
 
   clearConfiguratorSession: () => {
     get().setActiveConfiguratorProject(null);
+  },
+
+  acknowledgeStudioSessionSuppression: () => {
+    if (get().studioSessionSuppressed) {
+      set({ studioSessionSuppressed: false });
+    }
   },
 }));
 

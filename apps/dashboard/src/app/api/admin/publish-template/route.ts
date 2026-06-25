@@ -12,7 +12,7 @@ import {
   verifyStudioAdmin,
 } from "@/lib/supabase-auth";
 import { listTemplateOverviewFromDisk } from "@/lib/template-studio-meta";
-import { gameEngineRoot } from "@/lib/template-library-root";
+import { resolveEngineBundleDistDir } from "@/lib/template-library-root";
 import {
   readTemplateMeta,
   resolveTemplateMetaDir,
@@ -102,13 +102,13 @@ function buildEngineBundle(
   templateSlug: string,
   displayName: string,
 ): { ok: true; buffer: Buffer } | { ok: false; error: string } {
-  const distDir = path.join(gameEngineRoot, "dist");
+  const distDir = resolveEngineBundleDistDir();
 
-  if (!existsSync(distDir)) {
+  if (!distDir) {
     return {
       ok: false,
       error:
-        "Game engine dist not found. Run `pnpm build` inside apps/game-engine first.",
+        "Game engine bundle not found. Run `pnpm run build:engine` from the monorepo root (builds apps/game-engine and syncs to apps/dashboard/public/engine).",
     };
   }
 
@@ -204,7 +204,11 @@ async function uploadMetaAsset(
 
     const { error: uploadError } = await serviceClient.storage
       .from(META_ASSETS_BUCKET)
-      .upload(storagePath, buffer, { contentType, upsert: true });
+      .upload(storagePath, buffer, {
+        contentType,
+        upsert: true,
+        cacheControl: "60",
+      });
 
     if (uploadError) {
       console.error(
@@ -228,6 +232,30 @@ async function uploadMetaAsset(
   }
 }
 
+function resolveMetaAssetBasename(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  if (trimmed.includes("file=")) {
+    try {
+      const query = trimmed.includes("?")
+        ? trimmed.slice(trimmed.indexOf("?"))
+        : `?${trimmed}`;
+      const file = new URLSearchParams(query).get("file");
+      if (file) return path.basename(file);
+    } catch {
+      // Fall through to basename normalization.
+    }
+  }
+
+  return path.basename(trimmed.replace(/\\/g, "/"));
+}
+
+function withPublishCacheBust(publicUrl: string, version: string): string {
+  const separator = publicUrl.includes("?") ? "&" : "?";
+  return `${publicUrl}${separator}v=${encodeURIComponent(version)}`;
+}
+
 type MetaPublicUrls = {
   description: string;
   tutorial: string;
@@ -235,35 +263,51 @@ type MetaPublicUrls = {
   previewUrls: string[];
 };
 
+type ExistingMetaUrls = {
+  thumbnailUrl?: string;
+  previewUrls?: string[];
+};
+
 /**
  * Read local template-meta.json, upload any referenced assets to
  * Supabase Storage, and return the resolved public URLs.
+ * Assets are stored under a versioned prefix so each publish gets a fresh
+ * public URL (avoids CDN/browser cache serving a stale thumbnail).
  * All storage errors are non-fatal — the publish continues regardless.
  */
 async function resolveMetaPublicUrls(
   serviceClient: ReturnType<typeof createClient<Database>>,
   templateId: string,
+  version: string,
+  existing: ExistingMetaUrls = {},
 ): Promise<MetaPublicUrls> {
   const meta = readTemplateMeta(templateId);
   const metaDir = resolveTemplateMetaDir(templateId);
+  const versionedPrefix = `meta/${templateId}/v${version}`;
 
   // Thumbnail
-  let thumbnailUrl = "";
+  let thumbnailUrl = existing.thumbnailUrl ?? "";
   if (meta.thumbnail) {
-    const localPath = path.join(metaDir, path.basename(meta.thumbnail));
-    const storagePath = `meta/${templateId}/${path.basename(meta.thumbnail)}`;
+    const basename = resolveMetaAssetBasename(meta.thumbnail);
+    const localPath = path.join(metaDir, basename);
+    const storagePath = `${versionedPrefix}/${basename}`;
     const url = await uploadMetaAsset(serviceClient, localPath, storagePath);
-    if (url) thumbnailUrl = url;
+    if (url) thumbnailUrl = withPublishCacheBust(url, version);
   }
 
   // Previews (preserve order)
   const previewUrls: string[] = [];
   for (const previewFilename of meta.previews) {
-    const basename = path.basename(previewFilename);
+    const basename = resolveMetaAssetBasename(previewFilename);
+    if (!basename) continue;
     const localPath = path.join(metaDir, basename);
-    const storagePath = `meta/${templateId}/${basename}`;
+    const storagePath = `${versionedPrefix}/${basename}`;
     const url = await uploadMetaAsset(serviceClient, localPath, storagePath);
-    if (url) previewUrls.push(url);
+    if (url) previewUrls.push(withPublishCacheBust(url, version));
+  }
+
+  if (previewUrls.length === 0 && existing.previewUrls?.length) {
+    previewUrls.push(...existing.previewUrls);
   }
 
   return {
@@ -429,10 +473,24 @@ export async function POST(request: NextRequest): Promise<Response> {
   // --- Ensure the public meta-assets bucket exists (non-fatal) ---
   await ensureMetaAssetsBucket(serviceClient);
 
+  const { data: existingTemplate } = await serviceClient
+    .from("templates")
+    .select("thumbnail_url, preview_urls")
+    .eq("template_slug", templateId)
+    .maybeSingle();
+
   // --- Upload local meta assets and resolve public URLs ---
   // Non-fatal: if meta uploads fail we still publish the bundle, just without
   // rich storefront content. Errors are already logged inside the helper.
-  const metaUrls = await resolveMetaPublicUrls(serviceClient, templateId);
+  const metaUrls = await resolveMetaPublicUrls(
+    serviceClient,
+    templateId,
+    version,
+    {
+      thumbnailUrl: existingTemplate?.thumbnail_url ?? undefined,
+      previewUrls: existingTemplate?.preview_urls ?? undefined,
+    },
+  );
 
   console.info(
     `[publish-template] Meta resolved for ${templateId}: ` +

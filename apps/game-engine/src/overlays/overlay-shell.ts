@@ -28,6 +28,37 @@ export function initOverlayShell(): void {
   }
   root.dataset.mounted = "true";
   root.className = "pointer-events-none absolute inset-0 z-10";
+  root.style.transformOrigin = "top left";
+  syncOverlayShellToGameViewport();
+}
+
+function readGameViewportSize(): { width: number; height: number } | null {
+  const container = document.getElementById("game-container");
+  if (!container) {
+    return null;
+  }
+
+  const width = Math.max(1, Math.floor(container.clientWidth));
+  const height = Math.max(1, Math.floor(container.clientHeight));
+  if (width < 1 || height < 1) {
+    return null;
+  }
+
+  return { width, height };
+}
+
+/** Keeps in-engine #ui-layer aligned with the Phaser canvas box (not window viewport). */
+export function syncOverlayShellToGameViewport(): void {
+  const root = getOverlayRoot();
+  const size = readGameViewportSize();
+  if (!size) {
+    return;
+  }
+
+  root.style.width = `${size.width}px`;
+  root.style.height = `${size.height}px`;
+  root.style.setProperty("--game-viewport-width", `${size.width}px`);
+  root.style.setProperty("--game-viewport-height", `${size.height}px`);
 }
 
 export function applyOverlayConfig(config: GameConfig): void {

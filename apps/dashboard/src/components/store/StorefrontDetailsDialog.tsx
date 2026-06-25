@@ -3,7 +3,9 @@
 import { useId, useRef, useState, type ReactNode } from "react";
 import { Gamepad2, Lock, Loader2, Package, X, Zap } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { acquireLicenseViaIpc } from "@/lib/store-ipc";
 import { useLicenseStore } from "@/store/useLicenseStore";
+import { useAuthStore } from "@/store/useAuthStore";
 import {
   parseManifest,
   slugToTitle,
@@ -25,6 +27,41 @@ const UI_MODULE_LABELS: Record<string, string> = {
 };
 
 const PRO_FEATURE_MODULES = ["lead-capture", "highscore", "combo-multiplier"];
+
+function isElectronRuntime() {
+  return (
+    typeof window !== "undefined" &&
+    !!(window as Window & { electron?: { ipcRenderer?: unknown } }).electron
+      ?.ipcRenderer
+  );
+}
+
+async function resolveAccessToken(): Promise<string | null> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (sessionData?.session?.access_token) {
+    return sessionData.session.access_token;
+  }
+
+  const { data: refreshed } = await supabase.auth.refreshSession();
+  return refreshed?.session?.access_token ?? null;
+}
+
+async function resolveOrganizationId(
+  organizationId: string | null,
+): Promise<string | null> {
+  if (organizationId) return organizationId;
+
+  const userId = useAuthStore.getState().userId;
+  if (!userId) return null;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("organization_id")
+    .eq("id", userId)
+    .maybeSingle();
+
+  return profile?.organization_id ?? null;
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -352,16 +389,35 @@ function AcquireCTA({
     setErrorMsg(null);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const jwt = sessionData?.session?.access_token;
+      if (isElectronRuntime()) {
+        const data = await acquireLicenseViaIpc(template.id);
+        if (!data) {
+          throw new Error(
+            "Desktop auth bridge is out of date. Restart the app and try again.",
+          );
+        }
+        if (!data.ok) {
+          const message =
+            data.error === "SESSION_EXPIRED"
+              ? "Session expired. Please sign in again."
+              : data.error;
+          throw new Error(message);
+        }
 
+        addLicense(template.id);
+        setCtaState("owned");
+        return;
+      }
+
+      const jwt = await resolveAccessToken();
       if (!jwt) {
         setErrorMsg("Session expired. Please sign in again.");
         setCtaState("error");
         return;
       }
 
-      if (!organizationId) {
+      const resolvedOrgId = await resolveOrganizationId(organizationId);
+      if (!resolvedOrgId) {
         setErrorMsg(
           "Could not determine your organization. Please reload and try again.",
         );
@@ -377,7 +433,7 @@ function AcquireCTA({
         },
         body: JSON.stringify({
           template_id: template.id,
-          org_id: organizationId,
+          org_id: resolvedOrgId,
         }),
       });
 

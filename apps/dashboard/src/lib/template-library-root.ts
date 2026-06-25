@@ -16,6 +16,28 @@ export const monorepoRoot = path.resolve(dashboardRoot, "../..");
 /** apps/game-engine — used for sync-manifest-registry spawn cwd */
 export const gameEngineRoot = path.resolve(monorepoRoot, "apps/game-engine");
 
+/** Embedded iframe preview bundle copied by `pnpm run build:engine`. */
+export const dashboardEnginePublicRoot = path.resolve(
+  dashboardRoot,
+  "public/engine",
+);
+
+/**
+ * Resolves the on-disk game-engine build used when publishing template bundles.
+ * Prefers the canonical Vite output; falls back to the dashboard public copy
+ * produced by `pnpm run build:engine` (common during `pnpm dev`).
+ */
+export function resolveEngineBundleDistDir(): string | null {
+  const candidates = [
+    path.join(gameEngineRoot, "dist"),
+    dashboardEnginePublicRoot,
+  ];
+  for (const dir of candidates) {
+    if (existsSync(dir)) return dir;
+  }
+  return null;
+}
+
 /** packages/templates/src — canonical TypeScript source for all game templates */
 export const engineTemplatesRoot = path.resolve(
   monorepoRoot,

@@ -1017,8 +1017,8 @@ app.whenReady().then(async () => {
     registerGetProjectListIpc(workspacePath);
     await registerAuthIpc();
     registerLicenseIpc(getSessionForInternal);
-    registerStoreIpc(getSessionForInternal);
     registerAdminIpc(getSessionForInternal, getDashboardBaseUrl, refreshSessionForInternal);
+    registerStoreIpc(getSessionForInternal);
     registerStudioProtocol(workspacePath);
     autoMigrateLegacyProjects(getProjectsPath(workspacePath));
     const externalDashboardUrl = resolveExternalDashboardUrl();

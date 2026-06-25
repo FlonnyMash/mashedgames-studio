@@ -15,6 +15,7 @@ import {
   applyOverlayConfig,
   bindSceneLifecycleBridge,
   initOverlayShell,
+  syncOverlayShellToGameViewport,
 } from "./overlays/overlay-shell.ts";
 
 const GAME_START_EVENT = "GAME_START";
@@ -48,6 +49,7 @@ function onPhaserGameReady(phaserGame: Phaser.Game): void {
   phaserGame.events.emit("bridge:config-update", latestConfig);
   applyOverlayConfig(latestConfig);
   bindSceneLifecycleBridge(phaserGame);
+  syncOverlayShellToGameViewport();
   engineMessenger.notifyPhaserBooted();
 }
 

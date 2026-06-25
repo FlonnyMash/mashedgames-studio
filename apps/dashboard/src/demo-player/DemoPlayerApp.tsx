@@ -1,4 +1,8 @@
 import { OverlayLayer } from "@/components/studio/overlays/OverlayLayer";
+import {
+  PreviewOverlayRoot,
+  usePreviewOverlayScale,
+} from "@/lib/preview-overlay-scale";
 import { createDashboardMessenger } from "@/bridge/messenger";
 import { usePreviewBridgeStore } from "@/lib/preview-bridge-store";
 import { useBridgeSync } from "@/store/useBridgeSync";
@@ -15,6 +19,7 @@ export function DemoPlayerApp({ payload }: DemoPlayerAppProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const screenRef = useRef<HTMLDivElement>(null);
   const messenger = useMemo(() => createDashboardMessenger("studio"), []);
+  const overlayScale = usePreviewOverlayScale(screenRef);
 
   const templateId = payload.templateId as GameTemplateId;
   const iframeSrc = useMemo(() => {
@@ -126,7 +131,9 @@ export function DemoPlayerApp({ payload }: DemoPlayerAppProps) {
     <div className="demo-stage" data-mashed-demo-shell>
       <div ref={screenRef} className="demo-frame">
         <iframe ref={iframeRef} src={iframeSrc} title="Game demo" />
-        <OverlayLayer messenger={messenger} />
+        <PreviewOverlayRoot scale={overlayScale}>
+          <OverlayLayer messenger={messenger} />
+        </PreviewOverlayRoot>
       </div>
     </div>
   );

@@ -25,6 +25,9 @@ export function StudioTemplateGate({
   const activeSessionTemplateId = useWorkspaceSessionStore(
     (s) => s.activeStudioTemplateId,
   );
+  const studioSessionSuppressed = useWorkspaceSessionStore(
+    (s) => s.studioSessionSuppressed,
+  );
   const effectiveTemplateId =
     templateParam ?? (detached ? activeSessionTemplateId : null);
 
@@ -134,7 +137,7 @@ export function StudioTemplateGate({
     setError(null);
     // Only bind session while on the workspace route — avoids undoing an exit
     // to /studio/templates while the old ?template= query is still in flight.
-    if (pathname === "/studio") {
+    if (pathname === "/studio" && !studioSessionSuppressed) {
       useWorkspaceSessionStore
         .getState()
         .setActiveStudioTemplate(effectiveTemplateId);
@@ -160,6 +163,7 @@ export function StudioTemplateGate({
     pathname,
     selectedTemplateId,
     staticTemplateOptions,
+    studioSessionSuppressed,
     templateParam,
     router,
   ]);

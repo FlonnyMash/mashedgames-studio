@@ -1,4 +1,5 @@
 import type Phaser from "phaser";
+import { syncOverlayShellToGameViewport } from "../overlays/overlay-shell.ts";
 
 type ScaleWithResize = Phaser.Scale.ScaleManager & {
   resize?: (width: number, height: number) => void;
@@ -48,7 +49,10 @@ export function bindGamePreviewResize(game: Phaser.Game): () => void {
     return () => undefined;
   }
 
-  const apply = () => applyGameSize(game);
+  const apply = () => {
+    applyGameSize(game);
+    syncOverlayShellToGameViewport();
+  };
 
   const observer = new ResizeObserver(apply);
   observer.observe(parent);

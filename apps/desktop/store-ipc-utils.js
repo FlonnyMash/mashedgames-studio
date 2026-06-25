@@ -1,6 +1,7 @@
 const { ipcMain } = require("electron");
 const { createClient } = require("@supabase/supabase-js");
 const ws = require("ws");
+const { callDashboardApi } = require("./admin-ipc-utils");
 
 // ---------------------------------------------------------------------------
 // StoreManager — Electron main-process template catalog fetcher.
@@ -308,6 +309,72 @@ async function handleLoadCatalog() {
   return fetchStoreCatalog();
 }
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * IPC handler for `store:acquire-license`.
+ * Payload: { template_id: string }
+ * Response: { ok: true, licenseId?: string } | { ok: false, error: string }
+ *
+ * Resolves the caller's organisation in the main process so the renderer
+ * never needs a Supabase session or org_id from the anon client.
+ */
+async function handleAcquireLicense(_event, payload) {
+  const templateId = payload?.template_id;
+  if (typeof templateId !== "string" || !UUID_RE.test(templateId)) {
+    return { ok: false, error: "template_id must be a valid UUID." };
+  }
+
+  let session = _getSession?.();
+  if (!session?.access_token) {
+    return { ok: false, error: "SESSION_EXPIRED" };
+  }
+
+  const userId = session.user?.id;
+  if (!userId) {
+    return { ok: false, error: "SESSION_EXPIRED" };
+  }
+
+  let supabase;
+  try {
+    supabase = buildUserClient(session.access_token);
+  } catch (err) {
+    console.error("[store] Failed to build authenticated Supabase client:", err.message);
+    return { ok: false, error: "SESSION_EXPIRED" };
+  }
+
+  try {
+    const { data: profile, error: profileError } = await withTimeout(
+      supabase
+        .from("profiles")
+        .select("organization_id")
+        .eq("id", userId)
+        .maybeSingle(),
+      QUERY_TIMEOUT_MS,
+    );
+
+    if (profileError || !profile?.organization_id) {
+      return {
+        ok: false,
+        error: "Could not determine your organization. Please reload and try again.",
+      };
+    }
+
+    return callDashboardApi("/api/acquire-license", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        template_id: templateId,
+        org_id: profile.organization_id,
+      }),
+    });
+  } catch (err) {
+    console.error("[store] acquire-license failed:", err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -326,6 +393,7 @@ function registerStoreIpc(getSession) {
   }
   _getSession = getSession;
   ipcMain.handle("store:load-catalog", handleLoadCatalog);
+  ipcMain.handle("store:acquire-license", handleAcquireLicense);
 }
 
 module.exports = { registerStoreIpc };
