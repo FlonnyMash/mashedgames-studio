@@ -13,9 +13,12 @@ const ALLOWED_CHANNELS = new Set([
   "admin:publish-template",
   "admin:ref-data",
   "admin:provision-license",
+  "admin:fetch",
   "license:check-eligibility",
   "store:load-catalog",
+  "store:load-tag-filters",
   "store:acquire-license",
+  "store:claim-game",
   // Electron auto-updater
   "updater:check",
   "updater:download",

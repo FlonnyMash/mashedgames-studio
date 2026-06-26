@@ -1,26 +1,24 @@
-"use client";
+import { StorePageContent } from "./StorePageContent";
+import { parseStorefrontPageSearchParams } from "@/lib/storefront-search-params";
 
-import { TemplateStorefront } from "@/components/store/TemplateStorefront";
-import Link from "next/link";
+export const dynamic = "force-dynamic";
 
-export default function StorePage() {
+type StorePageProps = {
+  searchParams: Promise<{
+    tag?: string | string[];
+    search?: string;
+    sort?: string;
+  }>;
+};
+
+export default async function StorePage({ searchParams }: StorePageProps) {
+  const params = await searchParams;
+  const { initialSearch, initialSort } = parseStorefrontPageSearchParams(params);
+
   return (
-    <div className="mx-auto w-full max-w-6xl flex-1 overflow-y-auto p-8">
-      <header className="mb-8">
-        <Link href="/" className="text-xs text-zinc-500 hover:text-zinc-800">
-          ← Home
-        </Link>
-        <h1 className="mt-2 text-2xl font-semibold text-zinc-900">
-          Game Templates
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Browse all available game templates. Owned games can be opened
-          directly in the engine — locked ones can be unlocked by contacting
-          your account manager.
-        </p>
-      </header>
-
-      <TemplateStorefront />
-    </div>
+    <StorePageContent
+      initialSearch={initialSearch}
+      initialSort={initialSort}
+    />
   );
 }

@@ -22,6 +22,7 @@
     "@mashedgames/game-engine": "workspace:*",
     "@mashedgames/shared": "workspace:*",
     "@mashedgames/studio-engine": "workspace:*",
+    "@radix-ui/react-dialog": "^1.1.17",
     "@supabase/supabase-js": "^2.107.0",
     "@swc/helpers": "0.5.15",
     "adm-zip": "^0.5.17",

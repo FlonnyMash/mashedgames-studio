@@ -20,6 +20,55 @@ body {
   color: var(--foreground);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Global scrollbar — thin, flush, minimal B2B aesthetic                      */
+/* -------------------------------------------------------------------------- */
+
+*,
+html,
+body {
+  scrollbar-width: thin;
+  scrollbar-color: #d4d4d8 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #d4d4d8;
+  border-radius: 10px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #a1a1aa;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+  *,
+  html,
+  body {
+    scrollbar-color: #3f3f46 transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: #3f3f46;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #52525b;
+  }
+}
+
 @keyframes popover-in {
   from {
     opacity: 0;

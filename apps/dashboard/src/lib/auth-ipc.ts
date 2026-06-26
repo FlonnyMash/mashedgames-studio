@@ -202,3 +202,18 @@ export async function provisionLicenseViaIpc(payload: {
     throw err;
   }
 }
+
+type StoreTagFiltersResult =
+  | { ok: true; filters: unknown }
+  | { ok: false; error: string };
+
+export async function loadStoreTagFiltersViaIpc(): Promise<StoreTagFiltersResult | null> {
+  const electron = getElectron();
+  if (!electron) return null;
+  try {
+    return await electron.invoke("store:load-tag-filters");
+  } catch (err) {
+    if (isMissingIpcHandlerError(err)) return null;
+    throw err;
+  }
+}

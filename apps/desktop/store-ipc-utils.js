@@ -165,6 +165,143 @@ function hasSupabaseConfig() {
   );
 }
 
+/** Escape `%` and `_` for safe use inside ilike patterns. */
+function escapeIlikePattern(value) {
+  return value.replace(/[%_\\]/g, (char) => `\\${char}`);
+}
+
+function applyCatalogSearch(query, search) {
+  const trimmed = (search ?? "").trim();
+  if (!trimmed) return query;
+
+  const escaped = escapeIlikePattern(trimmed);
+  const pattern = `%${escaped}%`;
+  return query.or(
+    `description.ilike.${pattern},template_slug.ilike.${pattern},manifest->>displayName.ilike.${pattern}`,
+  );
+}
+
+function applyCatalogSort(query, sort = "newest") {
+  if (sort === "popular") {
+    return query
+      .order("popularity_score", { ascending: false })
+      .order("published_at", { ascending: false });
+  }
+
+  if (sort === "alphabetical") {
+    return query.order("template_slug", { ascending: true });
+  }
+
+  return query.order("published_at", { ascending: false });
+}
+
+async function fetchCatalogRows(supabase, slugs, options) {
+  let query = supabase.from("published_templates_with_tags").select("*");
+
+  if (slugs !== null) {
+    if (slugs.length === 0) {
+      return [];
+    }
+    query = query.in("template_slug", slugs);
+  }
+
+  query = applyCatalogSearch(query, options.search ?? "");
+  query = applyCatalogSort(query, options.sort ?? "newest");
+
+  const { data, error } = await withTimeout(query, QUERY_TIMEOUT_MS);
+  if (error) {
+    throw error;
+  }
+
+  return data ?? [];
+}
+
+async function resolveMultiTagFilteredSlugs(supabase, tagSlugs) {
+  const { data: tagRows, error: tagError } = await withTimeout(
+    supabase.from("tags").select("id, slug").in("slug", tagSlugs),
+    QUERY_TIMEOUT_MS,
+  );
+
+  if (tagError) {
+    throw tagError;
+  }
+
+  const foundBySlug = new Map(
+    (tagRows ?? []).map((row) => [row.slug, row.id]),
+  );
+  const invalidTagSlugs = tagSlugs.filter((slug) => !foundBySlug.has(slug));
+  const tagIds = [...foundBySlug.values()];
+
+  if (tagIds.length === 0) {
+    return { slugs: [], invalidTagSlugs, tagInvalid: invalidTagSlugs.length > 0 };
+  }
+
+  const { data: links, error: linkError } = await withTimeout(
+    supabase.from("template_tags").select("template_slug").in("tag_id", tagIds),
+    QUERY_TIMEOUT_MS,
+  );
+
+  if (linkError) {
+    throw linkError;
+  }
+
+  const slugs = [
+    ...new Set((links ?? []).map((row) => row.template_slug).filter(Boolean)),
+  ];
+
+  return {
+    slugs,
+    invalidTagSlugs,
+    tagInvalid: invalidTagSlugs.length > 0,
+  };
+}
+
+function normalizeTagSlugs(tagSlugs) {
+  if (!Array.isArray(tagSlugs) || tagSlugs.length === 0) return [];
+
+  const seen = new Set();
+  const normalized = [];
+
+  for (const slug of tagSlugs) {
+    if (typeof slug !== "string") continue;
+    const trimmed = slug.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+
+  return normalized;
+}
+
+// Legacy single-tag helper (kept for reference in comments only).
+async function resolveTagFilteredSlugs(supabase, tagSlug) {
+  const { data: tagRow, error: tagError } = await withTimeout(
+    supabase.from("tags").select("id").eq("slug", tagSlug).maybeSingle(),
+    QUERY_TIMEOUT_MS,
+  );
+
+  if (tagError) {
+    throw tagError;
+  }
+  if (!tagRow) {
+    return { slugs: [], tagInvalid: true };
+  }
+
+  const { data: links, error: linkError } = await withTimeout(
+    supabase.from("template_tags").select("template_slug").eq("tag_id", tagRow.id),
+    QUERY_TIMEOUT_MS,
+  );
+
+  if (linkError) {
+    throw linkError;
+  }
+
+  return {
+    slugs: (links ?? []).map((row) => row.template_slug),
+    tagInvalid: false,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Core fetch logic
 // ---------------------------------------------------------------------------
@@ -173,9 +310,19 @@ function hasSupabaseConfig() {
  * Fetches the template catalog enriched with per-user license entitlements.
  * Returns only safe metadata — no tokens, keys, or raw DB internals.
  *
+ * @param {{ tagSlugs?: string[], tagSlug?: string | null, sort?: string, search?: string }} [options]
  * @returns {Promise<{ ok: true, templates: object[] } | { ok: false, error: string }>}
  */
-async function fetchStoreCatalog() {
+async function fetchStoreCatalog(options = {}) {
+  const normalizedTags = normalizeTagSlugs(
+    options.tagSlugs?.length
+      ? options.tagSlugs
+      : options.tagSlug?.trim()
+        ? [options.tagSlug.trim()]
+        : [],
+  );
+  const sort = options.sort ?? "newest";
+  const search = options.search ?? "";
   const session = _getSession?.();
   if (!session) {
     // Mock catalog only when Supabase is genuinely unconfigured (local UI dev).
@@ -205,26 +352,18 @@ async function fetchStoreCatalog() {
 
   try {
     // ------------------------------------------------------------------
-    // 1. Fetch the public template catalog.
+    // 1. Fetch the public template catalog (search + sort applied server-side).
     // ------------------------------------------------------------------
-    const { data: catalogRows, error: catalogError } = await withTimeout(
-      supabase
-        .from("templates")
-        .select(
-          "id, template_slug, tier, version, manifest, published_at, is_latest, storage_key, checksum, bundle_signature, yanked, description, tutorial, thumbnail_url, preview_urls",
-        )
-        .eq("is_latest", true)
-        .eq("yanked", false)
-        .order("published_at", { ascending: false }),
-      QUERY_TIMEOUT_MS,
-    );
+    let catalog;
+    let tagInvalid = false;
 
-    if (catalogError) {
-      console.error("[store] Failed to fetch template catalog:", catalogError.message);
-      return { ok: false, error: catalogError.message };
+    if (normalizedTags.length === 0) {
+      catalog = await fetchCatalogRows(supabase, null, { sort, search });
+    } else {
+      const resolved = await resolveMultiTagFilteredSlugs(supabase, normalizedTags);
+      tagInvalid = resolved.tagInvalid;
+      catalog = await fetchCatalogRows(supabase, resolved.slugs, { sort, search });
     }
-
-    const catalog = catalogRows ?? [];
 
     // ------------------------------------------------------------------
     // 2. Resolve the user's organisation for license lookup.
@@ -279,17 +418,79 @@ async function fetchStoreCatalog() {
     }
 
     // ------------------------------------------------------------------
-    // 4. Enrich catalog with entitlement flag and return.
+    // 4. Fetch templates claimed into public.games by this user.
+    // ------------------------------------------------------------------
+    let claimedTemplateIds = new Set();
+
+    const { data: claimedGames, error: claimedError } = await withTimeout(
+      supabase
+        .from("games")
+        .select("source_template_id")
+        .eq("owner_id", userId)
+        .not("source_template_id", "is", null),
+      QUERY_TIMEOUT_MS,
+    );
+
+    if (claimedError) {
+      console.error("[store] Failed to fetch claimed games:", claimedError.message);
+    } else {
+      claimedTemplateIds = new Set(
+        (claimedGames ?? [])
+          .map((g) => g.source_template_id)
+          .filter((id) => typeof id === "string"),
+      );
+    }
+
+    // ------------------------------------------------------------------
+    // 5. Enrich catalog with entitlement flag and return.
     // ------------------------------------------------------------------
     const templates = catalog.map((t) => ({
       ...t,
-      isLicensed: licensedIds.has(t.id),
+      isLicensed: licensedIds.has(t.id) || claimedTemplateIds.has(t.id),
     }));
 
     return { ok: true, templates };
 
   } catch (err) {
     console.error("[store] Network/unexpected error fetching catalog:", err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Fetches grouped storefront tag filters via `get_storefront_tag_filters`.
+ * Uses the authenticated user's JWT so RLS applies server-side.
+ *
+ * @returns {Promise<{ ok: true, filters: unknown } | { ok: false, error: string }>}
+ */
+async function fetchStoreTagFilters() {
+  const session = _getSession?.();
+  if (!session?.access_token) {
+    return { ok: false, error: "NOT_AUTHENTICATED" };
+  }
+
+  let supabase;
+  try {
+    supabase = buildUserClient(session.access_token);
+  } catch (err) {
+    console.error("[store] Failed to build authenticated Supabase client:", err.message);
+    return { ok: false, error: err.message };
+  }
+
+  try {
+    const { data, error } = await withTimeout(
+      supabase.rpc("get_storefront_tag_filters"),
+      QUERY_TIMEOUT_MS,
+    );
+
+    if (error) {
+      console.error("[store] Failed to fetch tag filters:", error.message);
+      return { ok: false, error: error.message };
+    }
+
+    return { ok: true, filters: data ?? [] };
+  } catch (err) {
+    console.error("[store] Network/unexpected error fetching tag filters:", err.message);
     return { ok: false, error: err.message };
   }
 }
@@ -305,12 +506,32 @@ async function fetchStoreCatalog() {
  * The `error` field carries a short code — never a raw Supabase error that
  * could expose server internals to the renderer.
  */
-async function handleLoadCatalog() {
-  return fetchStoreCatalog();
+async function handleLoadCatalog(_event, options) {
+  return fetchStoreCatalog(options ?? {});
+}
+
+/**
+ * IPC handler for `store:load-tag-filters`.
+ * Response: { ok: true, filters: unknown } | { ok: false, error: string }
+ */
+async function handleLoadTagFilters() {
+  return fetchStoreTagFilters();
 }
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function slugFromTemplate(templateSlug) {
+  const base = templateSlug
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+  const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 6);
+  const slug = base.length > 0 ? `${base}-${suffix}` : `game-${suffix}`;
+  return slug.length >= 3 ? slug : `game-${suffix}`;
+}
 
 /**
  * IPC handler for `store:acquire-license`.
@@ -375,6 +596,47 @@ async function handleAcquireLicense(_event, payload) {
   }
 }
 
+/**
+ * IPC handler for `store:claim-game`.
+ * Payload: { template_id: string, template_slug: string }
+ * Response: { ok: true, game: object } | { ok: false, error: string }
+ *
+ * Resolves targetOwnerId from the main-process session so the renderer never
+ * needs a Supabase JWT for POST /api/games/claim.
+ */
+async function handleClaimGame(_event, payload) {
+  const templateId = payload?.template_id;
+  const templateSlug = payload?.template_slug;
+
+  if (typeof templateId !== "string" || !UUID_RE.test(templateId)) {
+    return { ok: false, error: "template_id must be a valid UUID." };
+  }
+
+  if (typeof templateSlug !== "string" || templateSlug.trim().length === 0) {
+    return { ok: false, error: "template_slug is required." };
+  }
+
+  const session = _getSession?.();
+  if (!session?.access_token) {
+    return { ok: false, error: "SESSION_EXPIRED" };
+  }
+
+  const userId = session.user?.id;
+  if (!userId) {
+    return { ok: false, error: "SESSION_EXPIRED" };
+  }
+
+  return callDashboardApi("/api/games/claim", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      templateId,
+      targetOwnerId: userId,
+      slug: slugFromTemplate(templateSlug),
+    }),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
@@ -393,7 +655,9 @@ function registerStoreIpc(getSession) {
   }
   _getSession = getSession;
   ipcMain.handle("store:load-catalog", handleLoadCatalog);
+  ipcMain.handle("store:load-tag-filters", handleLoadTagFilters);
   ipcMain.handle("store:acquire-license", handleAcquireLicense);
+  ipcMain.handle("store:claim-game", handleClaimGame);
 }
 
 module.exports = { registerStoreIpc };

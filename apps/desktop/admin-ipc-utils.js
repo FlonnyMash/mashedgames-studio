@@ -117,6 +117,43 @@ async function handleAdminProvisionLicense(_event, payload) {
   });
 }
 
+const ALLOWED_ADMIN_FETCH_PREFIXES = [
+  "/api/admin/tag-categories",
+  "/api/admin/tags",
+];
+
+const TEMPLATE_TAGS_PATH = /^\/api\/templates\/[^/]+\/tags$/;
+
+function isAllowedAdminFetchPath(pathname) {
+  if (typeof pathname !== "string" || !pathname.startsWith("/api/")) {
+    return false;
+  }
+  if (TEMPLATE_TAGS_PATH.test(pathname)) {
+    return true;
+  }
+  return ALLOWED_ADMIN_FETCH_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+async function handleAdminFetch(_event, payload) {
+  const pathname = payload?.pathname;
+  const method = payload?.method ?? "GET";
+  const body = payload?.body;
+
+  if (!isAllowedAdminFetchPath(pathname)) {
+    return { ok: false, status: 403, error: "FORBIDDEN_PATH" };
+  }
+
+  const init = { method, headers: {} };
+  if (body !== undefined) {
+    init.headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+
+  return callDashboardApi(pathname, init);
+}
+
 /**
  * Registers the three admin IPC channels.
  *
@@ -145,6 +182,7 @@ function registerAdminIpc(getSession, getDashboardBaseUrl, refreshSession) {
   ipcMain.handle("admin:publish-template", handleAdminPublishTemplate);
   ipcMain.handle("admin:ref-data", handleAdminRefData);
   ipcMain.handle("admin:provision-license", handleAdminProvisionLicense);
+  ipcMain.handle("admin:fetch", handleAdminFetch);
 }
 
 module.exports = { registerAdminIpc, callDashboardApi };

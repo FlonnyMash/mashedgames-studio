@@ -205,6 +205,15 @@ The `drm.js` shim source lives in `apps/game-engine/src/drm/`. It is built as pa
 - Prefer Type-Safe database queries using `database.types.ts`.
 - If a query fails, audit the RLS policies first, as they are the primary source of access errors.
 
+## Template Tagging System (Database)
+Before implementing or modifying template tags, storefront filters, or admin tag CRUD, read **`apps/dashboard/docs/architecture/01-tagging-system-db.md`**. That document is authoritative for:
+
+- Normalized tables: `tag_categories`, `tags`, `template_tags` (M:N keyed on **`template_slug`**, not `templates.id`).
+- Storefront views: `published_tag_usage`, `published_templates_with_tags`.
+- RPC: `get_storefront_tag_filters()`.
+
+**Absolute rule:** Tags must **never** be stored as plain JSON arrays on `public.templates`. All tag data lives in the normalized tables; views may project aggregated JSON at read time only. Zod contracts: `packages/shared/src/tag-schema.ts`. Migration: `supabase/migrations/00005_tag_system.sql`.
+
 ## Application Architecture
 - We follow a strict separation: 
     - Studio Mode (internal, strictly gated by NEXT_PUBLIC_ENABLE_STUDIO_MODE).

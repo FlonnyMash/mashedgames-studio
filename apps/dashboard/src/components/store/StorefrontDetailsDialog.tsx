@@ -2,14 +2,16 @@
 
 import { useId, useRef, useState, type ReactNode } from "react";
 import { Gamepad2, Lock, Loader2, Package, X, Zap } from "lucide-react";
+import type { Tables } from "@/lib/supabaseClient";
 import { supabase } from "@/lib/supabaseClient";
-import { acquireLicenseViaIpc } from "@/lib/store-ipc";
-import { useLicenseStore } from "@/store/useLicenseStore";
 import { useAuthStore } from "@/store/useAuthStore";
+import { claimGameViaIpc } from "@/lib/store-ipc";
+import { useGameLibraryStore } from "@/store/useGameLibraryStore";
+import { toast } from "sonner";
+import { getTierStyle, TierBadge } from "@/lib/tier-config";
 import {
   parseManifest,
   slugToTitle,
-  TIER_BADGE,
   type EnrichedTemplate,
 } from "./storefront-types";
 
@@ -36,6 +38,20 @@ function isElectronRuntime() {
   );
 }
 
+function usesExternalDashboardInElectron(): boolean {
+  if (typeof window === "undefined") return false;
+  return (
+    (
+      window as Window & {
+        mashedRuntime?: { usesExternalDashboard?: boolean };
+      }
+    ).mashedRuntime?.usesExternalDashboard === true
+  );
+}
+
+type ClaimSuccessResponse = { ok: true; game: Tables<"games"> };
+type ClaimErrorResponse = { ok: false; error: string };
+
 async function resolveAccessToken(): Promise<string | null> {
   const { data: sessionData } = await supabase.auth.getSession();
   if (sessionData?.session?.access_token) {
@@ -46,21 +62,24 @@ async function resolveAccessToken(): Promise<string | null> {
   return refreshed?.session?.access_token ?? null;
 }
 
-async function resolveOrganizationId(
-  organizationId: string | null,
-): Promise<string | null> {
-  if (organizationId) return organizationId;
+async function resolveTargetOwnerId(): Promise<string | null> {
+  const storeUserId = useAuthStore.getState().userId;
+  if (storeUserId) return storeUserId;
 
-  const userId = useAuthStore.getState().userId;
-  if (!userId) return null;
+  const { data: sessionData } = await supabase.auth.getSession();
+  return sessionData?.session?.user.id ?? null;
+}
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("organization_id")
-    .eq("id", userId)
-    .maybeSingle();
-
-  return profile?.organization_id ?? null;
+function slugFromTemplate(templateSlug: string): string {
+  const base = templateSlug
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 80);
+  const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 6);
+  const slug = base.length > 0 ? `${base}-${suffix}` : `game-${suffix}`;
+  return slug.length >= 3 ? slug : `game-${suffix}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -292,10 +311,13 @@ type CtaState =
 function AcquireCTA({
   template,
   atLicenseCap,
+  onClose,
 }: {
   template: EnrichedTemplate;
   atLicenseCap: boolean;
+  onClose: () => void;
 }) {
+  const addClaimedTemplate = useGameLibraryStore((s) => s.addClaimedTemplate);
   const [ctaState, setCtaState] = useState<CtaState>(() => {
     if (template.isLicensed) return "owned";
     if (atLicenseCap) return "cap-reached";
@@ -304,10 +326,8 @@ function AcquireCTA({
   });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const addLicense = useLicenseStore((s) => s.addLicense);
-  const organizationId = useLicenseStore((s) => s.organizationId);
-
   const resolvedOwned = template.isLicensed || ctaState === "owned";
+  const tierLabel = getTierStyle(template.tier).label;
 
   if (resolvedOwned) {
     return (
@@ -388,70 +408,97 @@ function AcquireCTA({
     setCtaState("pending");
     setErrorMsg(null);
 
+    const finishSuccess = () => {
+      addClaimedTemplate(template.id);
+      setCtaState("owned");
+      toast.success("Template successfully added to your library!");
+      onClose();
+    };
+
+    const fail = (message: string) => {
+      toast.error(message);
+      setErrorMsg(message);
+      setCtaState("error");
+    };
+
     try {
-      if (isElectronRuntime()) {
-        const data = await acquireLicenseViaIpc(template.id);
-        if (!data) {
+      const claimViaHttp = async () => {
+        const jwt = await resolveAccessToken();
+        if (!jwt) {
+          fail("Session expired. Please sign in again.");
+          return;
+        }
+
+        const targetOwnerId = await resolveTargetOwnerId();
+        if (!targetOwnerId) {
+          fail("Could not determine your user ID. Please reload and try again.");
+          return;
+        }
+
+        const res = await fetch("/api/games/claim", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${jwt}`,
+          },
+          body: JSON.stringify({
+            templateId: template.id,
+            targetOwnerId,
+            slug: slugFromTemplate(template.template_slug),
+          }),
+        });
+
+        const contentType = res.headers.get("content-type") ?? "";
+        if (!contentType.includes("application/json")) {
           throw new Error(
-            "Desktop auth bridge is out of date. Restart the app and try again.",
+            res.status === 500
+              ? "Server misconfiguration. Check Supabase keys in .env.local."
+              : `Claim API returned an unexpected response (${res.status}).`,
           );
         }
-        if (!data.ok) {
-          const message =
-            data.error === "SESSION_EXPIRED"
-              ? "Session expired. Please sign in again."
-              : data.error;
-          throw new Error(message);
+
+        const data = (await res.json()) as ClaimSuccessResponse | ClaimErrorResponse;
+
+        if (!res.ok || !data.ok) {
+          throw new Error(
+            !data.ok ? data.error : "Failed to add template to library.",
+          );
         }
 
-        addLicense(template.id);
-        setCtaState("owned");
-        return;
-      }
-
-      const jwt = await resolveAccessToken();
-      if (!jwt) {
-        setErrorMsg("Session expired. Please sign in again.");
-        setCtaState("error");
-        return;
-      }
-
-      const resolvedOrgId = await resolveOrganizationId(organizationId);
-      if (!resolvedOrgId) {
-        setErrorMsg(
-          "Could not determine your organization. Please reload and try again.",
-        );
-        setCtaState("error");
-        return;
-      }
-
-      const res = await fetch("/api/acquire-license", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${jwt}`,
-        },
-        body: JSON.stringify({
-          template_id: template.id,
-          org_id: resolvedOrgId,
-        }),
-      });
-
-      const data = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        licenseId?: string;
+        finishSuccess();
       };
 
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error ?? "Acquisition failed.");
+      if (isElectronRuntime()) {
+        const data = await claimGameViaIpc(template.id, template.template_slug);
+        if (data) {
+          if (!data.ok) {
+            const message =
+              data.error === "SESSION_EXPIRED"
+                ? "Session expired. Please sign in again."
+                : data.error;
+            throw new Error(message);
+          }
+
+          finishSuccess();
+          return;
+        }
+
+        if (
+          process.env.NODE_ENV !== "production" &&
+          usesExternalDashboardInElectron()
+        ) {
+          await claimViaHttp();
+          return;
+        }
+
+        throw new Error(
+          "Desktop auth bridge is out of date. Quit Electron fully and restart pnpm dev.",
+        );
       }
 
-      addLicense(template.id);
-      setCtaState("owned");
+      await claimViaHttp();
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "Acquisition failed.");
-      setCtaState("error");
+      fail(err instanceof Error ? err.message : "Failed to add template to library.");
     }
   };
 
@@ -461,7 +508,7 @@ function AcquireCTA({
       onClick={() => void handleAcquire()}
       className="w-full rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
     >
-      Add to Library — Free
+      Add to Library — {tierLabel}
     </button>
   );
 }
@@ -510,7 +557,6 @@ export function StorefrontDetailsDialog({
   const [loadTimeMs, setLoadTimeMs] = useState<number | null>(null);
 
   const displayName = manifest.displayName ?? slugToTitle(template.template_slug);
-  const tierInfo = TIER_BADGE[template.tier] ?? TIER_BADGE.premium;
   const featureModules: string[] = Array.isArray(manifest.supportsUI)
     ? manifest.supportsUI
     : [];
@@ -648,11 +694,7 @@ export function StorefrontDetailsDialog({
                   Not owned
                 </span>
               )}
-              <span
-                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${tierInfo.cls}`}
-              >
-                {tierInfo.label}
-              </span>
+              <TierBadge tier={template.tier} />
               <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 font-mono text-xs font-medium text-zinc-400">
                 v{template.version}
               </span>
@@ -714,7 +756,11 @@ export function StorefrontDetailsDialog({
 
           {/* Sticky CTA footer */}
           <div className="shrink-0 border-t border-zinc-100 bg-zinc-50/60 px-6 py-5">
-            <AcquireCTA template={template} atLicenseCap={atLicenseCap} />
+            <AcquireCTA
+              template={template}
+              atLicenseCap={atLicenseCap}
+              onClose={onClose}
+            />
           </div>
         </div>
       </div>

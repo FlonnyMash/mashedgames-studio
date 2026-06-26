@@ -1,26 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2, Link2, Loader2, RefreshCw, Rocket, UploadCloud } from "lucide-react";
+import { Loader2, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { getAdminRefDataViaIpc, publishTemplateViaIpc } from "@/lib/auth-ipc";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type Tier = "free" | "premium" | "enterprise";
+import {
+  PublishTemplateDetailsDialog,
+  type PublishedVersion,
+  type Tier,
+} from "@/components/admin/PublishTemplateDetailsDialog";
 
 type LocalTemplate = {
   id: string;
   displayName: string;
   status: string;
-};
-
-type PublishedVersion = {
-  version: string;
-  publishedAt: string;
 };
 
 type TemplateState =
@@ -32,18 +26,6 @@ type ListState =
   | { status: "loading" }
   | { status: "error" }
   | { status: "success"; templates: LocalTemplate[] };
-
-const TIER_OPTIONS: { value: Tier; label: string }[] = [
-  { value: "free", label: "Free" },
-  { value: "premium", label: "Premium" },
-  { value: "enterprise", label: "Enterprise" },
-];
-
-const TIER_COLORS: Record<Tier, string> = {
-  free: "bg-zinc-100 text-zinc-600",
-  premium: "bg-amber-50 text-amber-700 border border-amber-200",
-  enterprise: "bg-violet-50 text-violet-700 border border-violet-200",
-};
 
 function isElectronRuntime() {
   return (
@@ -62,17 +44,42 @@ function buildPublishPayload(
     templateId,
     tier,
   };
-  // Send demo_url when the admin edited the field so publish-template can sync
-  // it to meta/template-meta.json before reading the persisted value for Supabase.
   if (templateId in demoUrls) {
     payload.demo_url = demoUrls[templateId]?.trim() ?? "";
   }
   return payload;
 }
 
-// ---------------------------------------------------------------------------
-// PublishTemplatePanel
-// ---------------------------------------------------------------------------
+const PublishTemplateListRow = memo(function PublishTemplateListRow({
+  displayName,
+  isPublished,
+  onSelect,
+}: {
+  displayName: string;
+  isPublished: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+        type="button"
+        onClick={onSelect}
+        className="flex w-full items-center justify-between gap-3 bg-white px-4 py-3 text-left transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-900"
+      >
+        <span className="truncate text-sm font-medium text-zinc-900">
+          {displayName}
+        </span>
+        {isPublished ? (
+          <span className="shrink-0 rounded-md bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-green-200">
+            Published
+          </span>
+        ) : (
+          <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500">
+            Unpublished
+          </span>
+        )}
+      </button>
+  );
+});
 
 export function PublishTemplatePanel() {
   const [listState, setListState] = useState<ListState>({ status: "loading" });
@@ -89,6 +96,16 @@ export function PublishTemplatePanel() {
   const [deployingTemplates, setDeployingTemplates] = useState<Set<string>>(
     new Set(),
   );
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
+    null,
+  );
+
+  const selectedTemplate = useMemo(() => {
+    if (listState.status !== "success" || !selectedTemplateId) return null;
+    return (
+      listState.templates.find((t) => t.id === selectedTemplateId) ?? null
+    );
+  }, [listState, selectedTemplateId]);
 
   const fetchDemoUrlsFromLocalMeta = useCallback(async (templates: LocalTemplate[]) => {
     try {
@@ -155,17 +172,12 @@ export function PublishTemplatePanel() {
               version: "published",
               publishedAt: "",
             };
-            // `template_slug` maps to local template IDs; keep `id` too as a
-            // defensive fallback if future payloads switch identifiers.
             versionMap[tpl.template_slug] = published;
             versionMap[tpl.id] = published;
           }
           setPublishedVersions(versionMap);
           return;
         }
-
-        // If Electron bridge exists but admin IPC handlers are not registered
-        // yet, fall back to web fetch path below instead of hard failing.
       }
 
       const {
@@ -183,8 +195,6 @@ export function PublishTemplatePanel() {
         | { ok: false };
       if (!body.ok) return;
 
-      // Build a map of slug → latest published version info
-      // (ref-data only returns slug+id; we use it to know what's published)
       const versionMap: Record<string, PublishedVersion> = {};
       for (const tpl of body.templates) {
         const published = {
@@ -219,8 +229,6 @@ export function PublishTemplatePanel() {
         );
 
         if (body !== null) {
-          // IPC bridge responded — use its result regardless of success/failure.
-          // Never fall through: the bridge is functional, so any failure is real.
           if (body.ok) {
             const newVersion: PublishedVersion = {
               version: body.version,
@@ -246,7 +254,6 @@ export function PublishTemplatePanel() {
             return;
           }
 
-          // IPC bridge returned a failure — map the error code to a readable message.
           const IPC_ERROR_MESSAGES: Record<string, string> = {
             SESSION_EXPIRED:
               "Your session has expired. Please sign out and sign in again.",
@@ -270,11 +277,6 @@ export function PublishTemplatePanel() {
           }));
           return;
         }
-
-        // body === null: IPC channel is not registered in this Electron build
-        // (missing handler / channel not in allowlist). Fall through to the
-        // web-session path so the admin panel still works in dev mode where
-        // the renderer has a live Supabase browser session.
       }
 
       const {
@@ -351,7 +353,6 @@ export function PublishTemplatePanel() {
         description: `${templateId} v${body.version} is now live.`,
       });
 
-      // Reset "done" back to "idle" after 3 s
       setTimeout(() => {
         setTemplateStates((prev) => ({
           ...prev,
@@ -364,11 +365,6 @@ export function PublishTemplatePanel() {
 
   const handleDeployDemo = useCallback(
     async (templateId: string) => {
-      // In Electron the renderer is intentionally anonymous — auth tokens live
-      // in the main process via safeStorage, so getSession() always returns
-      // null here. The deploy-demo API route spawns a shell process which only
-      // makes sense when running locally against the Next.js dev server. Prompt
-      // the admin to use the CLI command directly instead.
       if (isElectronRuntime()) {
         toast.info("Use the terminal to deploy demos from the desktop app", {
           description: `Run: pnpm deploy:demo ${templateId}`,
@@ -418,7 +414,6 @@ export function PublishTemplatePanel() {
           return;
         }
 
-        // Pin the URL in form state — already persisted to template-meta.json by the API.
         setDemoUrls((prev) => ({ ...prev, [templateId]: deployedUrl }));
 
         toast.success("Demo deployed!", {
@@ -439,213 +434,130 @@ export function PublishTemplatePanel() {
     [],
   );
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  const publishedById = useMemo(() => {
+    const map: Record<string, boolean> = {};
+    if (listState.status !== "success") return map;
+    for (const template of listState.templates) {
+      map[template.id] = Boolean(publishedVersions[template.id]);
+    }
+    return map;
+  }, [listState, publishedVersions]);
+
+  const selectedState = selectedTemplateId
+    ? (templateStates[selectedTemplateId] ?? {
+        status: "idle" as const,
+        publishedVersion: publishedVersions[selectedTemplateId] ?? null,
+      })
+    : null;
 
   return (
-    <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-zinc-100 px-6 py-5">
-        <div>
-          <h2 className="text-sm font-semibold text-zinc-900">
-            Publish Templates
-          </h2>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            Package a local template and register it in Supabase DRM.
-          </p>
-        </div>
-        {listState.status !== "loading" ? (
-          <button
-            type="button"
-            onClick={() => {
-              fetchTemplates();
-              fetchPublishedVersions();
-            }}
-            className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-400 transition-colors hover:bg-zinc-50 hover:text-zinc-700"
-            aria-label="Refresh template list"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
-        ) : null}
-      </div>
-
-      <div className="px-6 py-5">
-        {listState.status === "loading" ? (
-          <div className="flex items-center gap-2 text-sm text-zinc-400">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading templates…
+    <>
+      <div className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-zinc-100 px-6 py-5">
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-900">
+              Publish Templates
+            </h2>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Package a local template and register it in Supabase DRM.
+            </p>
           </div>
-        ) : listState.status === "error" ? (
-          <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
-            <span>Failed to load templates.</span>
+          {listState.status !== "loading" ? (
             <button
               type="button"
-              onClick={fetchTemplates}
-              className="ml-3 text-xs font-medium underline-offset-2 hover:underline"
+              onClick={() => {
+                fetchTemplates();
+                fetchPublishedVersions();
+              }}
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200 text-zinc-400 transition-colors hover:bg-zinc-50 hover:text-zinc-700"
+              aria-label="Refresh template list"
             >
-              Retry
+              <RefreshCw className="h-3.5 w-3.5" />
             </button>
-          </div>
-        ) : listState.templates.length === 0 ? (
-          <p className="text-sm text-zinc-400">No local templates found.</p>
-        ) : (
-          <ul className="space-y-3">
-            {listState.templates.map((template) => {
-              const state = templateStates[template.id] ?? {
-                status: "idle",
-                publishedVersion: publishedVersions[template.id] ?? null,
-              };
-              const selectedTier: Tier =
-                tierSelections[template.id] ?? "free";
-              const isPublishing = state.status === "publishing";
-              const isDone = state.status === "done";
-              const isDeploying = deployingTemplates.has(template.id);
-              const publishedVersion =
-                state.status === "idle" ? state.publishedVersion : null;
+          ) : null}
+        </div>
 
-              return (
+        <div className="px-6 py-5">
+          {listState.status === "loading" ? (
+            <div className="flex items-center gap-2 text-sm text-zinc-400">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading templates…
+            </div>
+          ) : listState.status === "error" ? (
+            <div className="flex items-center justify-between rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
+              <span>Failed to load templates.</span>
+              <button
+                type="button"
+                onClick={fetchTemplates}
+                className="ml-3 text-xs font-medium underline-offset-2 hover:underline"
+              >
+                Retry
+              </button>
+            </div>
+          ) : listState.templates.length === 0 ? (
+            <p className="text-sm text-zinc-400">No local templates found.</p>
+          ) : (
+            <ul className="overflow-hidden rounded-lg border border-zinc-200">
+              {listState.templates.map((template, index) => (
                 <li
                   key={template.id}
-                  className="rounded-xl border border-zinc-200 bg-zinc-50 p-4"
+                  className={index > 0 ? "border-t border-zinc-100" : undefined}
                 >
-                  {/* Template identity */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-zinc-900">
-                        {template.displayName}
-                      </p>
-                      <p className="mt-0.5 truncate font-mono text-xs text-zinc-400">
-                        {template.id}
-                      </p>
-                    </div>
-                    {publishedVersion ? (
-                      <span className="shrink-0 rounded-md bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-green-200">
-                        published
-                      </span>
-                    ) : (
-                      <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500">
-                        unpublished
-      </span>
-                    )}
-                  </div>
-
-                  {/* Demo URL input */}
-                  <div className="mt-3">
-                    <label
-                      htmlFor={`demo-url-${template.id}`}
-                      className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400"
-                    >
-                      <Link2 className="h-3 w-3" aria-hidden />
-                      Demo URL
-                    </label>
-                    <input
-                      id={`demo-url-${template.id}`}
-                      type="url"
-                      value={demoUrls[template.id] ?? ""}
-                      onChange={(e) =>
-                        setDemoUrls((prev) => ({
-                          ...prev,
-                          [template.id]: e.target.value,
-                        }))
-                      }
-                      disabled={isPublishing || isDeploying}
-                      placeholder="https://your-demo.pages.dev"
-                      className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-700 placeholder-zinc-300 outline-none transition-colors focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200 disabled:opacity-50"
-                    />
-                    <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400">
-                      Hosted Cloudflare Pages URL for the playable demo iframe
-                      shown in the template storefront.
-                    </p>
-
-                    {/* Deploy to Cloudflare Pages */}
-                    <button
-                      type="button"
-                      onClick={() => handleDeployDemo(template.id)}
-                      disabled={isDeploying || isPublishing}
-                      className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {isDeploying ? (
-                        <>
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          Building &amp; Deploying…
-                        </>
-                      ) : (
-                        <>
-                          <Rocket className="h-3.5 w-3.5" />
-                          Deploy &amp; Link Demo to Cloudflare
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Tier selector + Publish button */}
-                  <div className="mt-3 flex items-center gap-2">
-                    <select
-                      value={selectedTier}
-                      onChange={(e) =>
-                        setTierSelections((prev) => ({
-                          ...prev,
-                          [template.id]: e.target.value as Tier,
-                        }))
-                      }
-                      disabled={isPublishing}
-                      className="rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-xs text-zinc-700 outline-none transition-colors focus:border-zinc-400 disabled:opacity-50"
-                    >
-                      {TIER_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-
-                    {/* Tier pill */}
-                    <span
-                      className={`rounded-md px-2 py-0.5 text-xs font-medium ${TIER_COLORS[selectedTier]}`}
-                    >
-                      {selectedTier}
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() => handlePublish(template.id)}
-                      disabled={isPublishing || isDone}
-                      className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {isPublishing ? (
-                        <>
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          Publishing…
-                        </>
-                      ) : isDone ? (
-                        <>
-                          <CheckCircle2 className="h-3 w-3" />
-                          Published
-                        </>
-                      ) : (
-                        <>
-                          <UploadCloud className="h-3 w-3" />
-                          {publishedVersion ? "Re-publish" : "Publish"}
-                        </>
-                      )}
-                    </button>
-                  </div>
+                  <PublishTemplateListRow
+                    displayName={template.displayName}
+                    isPublished={publishedById[template.id] ?? false}
+                    onSelect={() => setSelectedTemplateId(template.id)}
+                  />
                 </li>
-              );
-            })}
-          </ul>
-        )}
+              ))}
+            </ul>
+          )}
 
-        <p className="mt-4 text-xs text-zinc-400">
-          Requires a{" "}
-          <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-zinc-600">
-            template-bundles
-          </code>{" "}
-          bucket in Supabase Storage and{" "}
-          <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-zinc-600">
-            GRANT INSERT, UPDATE ON public.templates TO service_role;
-          </code>
-        </p>
+          <p className="mt-4 text-xs text-zinc-400">
+            Requires a{" "}
+            <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-zinc-600">
+              template-bundles
+            </code>{" "}
+            bucket in Supabase Storage and{" "}
+            <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-zinc-600">
+              GRANT INSERT, UPDATE ON public.templates TO service_role;
+            </code>
+          </p>
+        </div>
       </div>
-    </div>
+
+      {selectedTemplate && selectedState ? (
+        <PublishTemplateDetailsDialog
+          templateId={selectedTemplate.id}
+          displayName={selectedTemplate.displayName}
+          open={Boolean(selectedTemplateId)}
+          onClose={() => setSelectedTemplateId(null)}
+          selectedTier={tierSelections[selectedTemplate.id] ?? "free"}
+          onTierChange={(tier) =>
+            setTierSelections((prev) => ({
+              ...prev,
+              [selectedTemplate.id]: tier,
+            }))
+          }
+          demoUrl={demoUrls[selectedTemplate.id] ?? ""}
+          onDemoUrlChange={(url) =>
+            setDemoUrls((prev) => ({
+              ...prev,
+              [selectedTemplate.id]: url,
+            }))
+          }
+          isPublishing={selectedState.status === "publishing"}
+          isDone={selectedState.status === "done"}
+          isDeploying={deployingTemplates.has(selectedTemplate.id)}
+          publishedVersion={
+            selectedState.status === "idle"
+              ? selectedState.publishedVersion
+              : null
+          }
+          onPublish={() => void handlePublish(selectedTemplate.id)}
+          onDeployDemo={() => void handleDeployDemo(selectedTemplate.id)}
+        />
+      ) : null}
+    </>
   );
 }

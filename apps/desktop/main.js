@@ -625,6 +625,28 @@ async function waitForExternalDashboardServer(baseUrl) {
   await waitForHttpReady(urls, timeoutMs);
 }
 
+/** Forward runtime secrets to the embedded Next standalone server (API routes read process.env). */
+function pickRuntimeEnv(keys) {
+  const picked = {};
+  for (const key of keys) {
+    const value = process.env[key]?.trim();
+    if (value) {
+      picked[key] = value;
+    }
+  }
+  return picked;
+}
+
+const DASHBOARD_SERVER_ENV_KEYS = [
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "SUPABASE_AUTH_PUBLIC_KEY_P256",
+  "SUPABASE_AUTH_PRIVATE_KEY_P256",
+  "NEXT_PUBLIC_ENABLE_STUDIO_MODE",
+  "NEXT_PUBLIC_APP_MODE",
+];
+
 function buildDashboardServerEnv(workspaceBasePath, port) {
   return {
     ELECTRON_RUN_AS_NODE: "1",
@@ -642,6 +664,7 @@ function buildDashboardServerEnv(workspaceBasePath, port) {
     APPDATA: process.env.APPDATA,
     LOCALAPPDATA: process.env.LOCALAPPDATA,
     PATH: process.env.PATH,
+    ...pickRuntimeEnv(DASHBOARD_SERVER_ENV_KEYS),
   };
 }
 
@@ -871,10 +894,11 @@ function cleanupDashboardServer() {
 // ---------------------------------------------------------------------------
 // Runtime config — populate Supabase env vars for the main process.
 //
-// NEXT_PUBLIC_* vars are baked into the Next.js JS bundle at build time, so
-// the dashboard server child process never needs them in its env.  However,
-// auth-ipc-utils.js runs here in the main process and reads process.env at
-// runtime, so we must inject the values before registerAuthIpc() is called.
+// NEXT_PUBLIC_* vars are baked into the Next.js JS bundle at build time.
+// Server-only Supabase keys must still be forwarded to the embedded dashboard
+// child process — API routes read them from process.env at request time.
+// auth-ipc-utils.js also runs here in the main process and reads process.env
+// at runtime, so we must inject values before registerAuthIpc() is called.
 //
 //  - Packaged build: reads runtime-supabase.json from app.getAppPath()
 //    (written by scripts/build-release.mjs and bundled via electron-builder).
@@ -917,6 +941,19 @@ function loadRuntimeConfig() {
       }
       if (config.supabaseAnonKey && !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = config.supabaseAnonKey;
+      }
+      if (
+        config.supabaseServiceRoleKey &&
+        !process.env.SUPABASE_SERVICE_ROLE_KEY
+      ) {
+        process.env.SUPABASE_SERVICE_ROLE_KEY = config.supabaseServiceRoleKey;
+      }
+      if (
+        config.supabaseAuthPublicKeyP256 &&
+        !process.env.SUPABASE_AUTH_PUBLIC_KEY_P256
+      ) {
+        process.env.SUPABASE_AUTH_PUBLIC_KEY_P256 =
+          config.supabaseAuthPublicKeyP256;
       }
     } catch (err) {
       console.warn("[runtime-config] Could not load runtime-supabase.json:", err.message);

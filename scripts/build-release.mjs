@@ -51,11 +51,24 @@ const supabaseUrl =
   process.env.NEXT_PUBLIC_SUPABASE_URL ?? envLocalVars.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const supabaseAnonKey =
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? envLocalVars.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseServiceRoleKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? envLocalVars.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const supabaseAuthPublicKeyP256 =
+  process.env.SUPABASE_AUTH_PUBLIC_KEY_P256 ??
+  envLocalVars.SUPABASE_AUTH_PUBLIC_KEY_P256 ??
+  "";
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.warn(
     "[build-release] WARNING: NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY not found. " +
       "Auth will not work in the packaged build.",
+  );
+}
+
+if (!supabaseServiceRoleKey) {
+  console.warn(
+    "[build-release] WARNING: SUPABASE_SERVICE_ROLE_KEY not found. " +
+      "Store licensing and admin API routes will return Server misconfiguration in the packaged build.",
   );
 }
 
@@ -82,7 +95,20 @@ if (!process.env.MASHED_UPDATE_BASE_URL && !envLocalVars.MASHED_UPDATE_BASE_URL)
 const runtimeSupabasePath = path.join(repoRoot, "apps", "desktop", "runtime-supabase.json");
 fs.writeFileSync(
   runtimeSupabasePath,
-  JSON.stringify({ supabaseUrl, supabaseAnonKey }, null, 2),
+  JSON.stringify(
+    {
+      supabaseUrl,
+      supabaseAnonKey,
+      ...(supabaseServiceRoleKey
+        ? { supabaseServiceRoleKey }
+        : {}),
+      ...(supabaseAuthPublicKeyP256
+        ? { supabaseAuthPublicKeyP256 }
+        : {}),
+    },
+    null,
+    2,
+  ),
 );
 console.log(`[build-release] wrote ${runtimeSupabasePath}`);
 

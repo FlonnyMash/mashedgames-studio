@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ShieldAlert } from "lucide-react";
 import { LicenseProvisioningForm } from "@/components/admin/LicenseProvisioningForm";
 import { PublishTemplatePanel } from "@/components/admin/PublishTemplatePanel";
@@ -16,6 +17,15 @@ export default function AdminPage() {
       <RoleGate allow="studio_admin">
         <div className="flex flex-col gap-8">
           <PublishTemplatePanel />
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-4">
+            <p className="text-sm text-zinc-600">
+              Manage global storefront tags in the{" "}
+              <Link href="/admin/tags" className="font-medium text-zinc-900 underline">
+                Tag Manager
+              </Link>
+              .
+            </p>
+          </div>
           <LicenseProvisioningForm />
         </div>
       </RoleGate>

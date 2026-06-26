@@ -390,6 +390,13 @@ export function ProfilePanel() {
             Admin Panel
             <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
           </Link>
+          <Link
+            href="/admin/tags"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+          >
+            Tag Manager
+            <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
+          </Link>
         </RoleGate>
 
         <button
