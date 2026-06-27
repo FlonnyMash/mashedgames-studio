@@ -122,26 +122,87 @@ const ALLOWED_ADMIN_FETCH_PREFIXES = [
   "/api/admin/tags",
 ];
 
-const TEMPLATE_TAGS_PATH = /^\/api\/templates\/[^/]+\/tags$/;
+const TEMPLATE_TAGS_PATH = /^\/api\/templates\/[^/?#]+\/tags\/?$/;
+const TEMPLATE_METADATA_PATH = /^\/api\/templates\/[^/?#]+\/metadata\/?$/;
+
+function normalizeAdminFetchPathname(pathname) {
+  if (typeof pathname !== "string") {
+    return "";
+  }
+
+  let normalized = pathname.trim();
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.includes("://")) {
+    try {
+      normalized = new URL(normalized).pathname;
+    } catch {
+      return "";
+    }
+  }
+
+  const queryIndex = normalized.indexOf("?");
+  if (queryIndex >= 0) {
+    normalized = normalized.slice(0, queryIndex);
+  }
+
+  const hashIndex = normalized.indexOf("#");
+  if (hashIndex >= 0) {
+    normalized = normalized.slice(0, hashIndex);
+  }
+
+  if (normalized.length > 1 && normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+
+  return normalized;
+}
 
 function isAllowedAdminFetchPath(pathname) {
-  if (typeof pathname !== "string" || !pathname.startsWith("/api/")) {
+  const normalized = normalizeAdminFetchPathname(pathname);
+  if (!normalized.startsWith("/api/")) {
     return false;
   }
-  if (TEMPLATE_TAGS_PATH.test(pathname)) {
+  if (TEMPLATE_TAGS_PATH.test(normalized)) {
+    return true;
+  }
+  if (TEMPLATE_METADATA_PATH.test(normalized)) {
     return true;
   }
   return ALLOWED_ADMIN_FETCH_PREFIXES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+    (prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`),
   );
 }
 
+async function handleAdminTemplateMetadata(_event, payload) {
+  const templateSlug =
+    typeof payload?.templateSlug === "string" ? payload.templateSlug.trim() : "";
+  const method = payload?.method ?? "GET";
+  const body = payload?.body;
+
+  if (!templateSlug) {
+    return { ok: false, status: 400, error: "TEMPLATE_SLUG_REQUIRED" };
+  }
+
+  const pathname = `/api/templates/${encodeURIComponent(templateSlug)}/metadata`;
+  const init = { method, headers: {} };
+  if (body !== undefined) {
+    init.headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+
+  return callDashboardApi(pathname, init);
+}
+
 async function handleAdminFetch(_event, payload) {
-  const pathname = payload?.pathname;
+  const pathname = normalizeAdminFetchPathname(payload?.pathname);
   const method = payload?.method ?? "GET";
   const body = payload?.body;
 
   if (!isAllowedAdminFetchPath(pathname)) {
+    console.warn("[admin-ipc] Blocked admin:fetch path:", payload?.pathname);
     return { ok: false, status: 403, error: "FORBIDDEN_PATH" };
   }
 
@@ -182,6 +243,7 @@ function registerAdminIpc(getSession, getDashboardBaseUrl, refreshSession) {
   ipcMain.handle("admin:publish-template", handleAdminPublishTemplate);
   ipcMain.handle("admin:ref-data", handleAdminRefData);
   ipcMain.handle("admin:provision-license", handleAdminProvisionLicense);
+  ipcMain.handle("admin:template-metadata", handleAdminTemplateMetadata);
   ipcMain.handle("admin:fetch", handleAdminFetch);
 }
 

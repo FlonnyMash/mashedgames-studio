@@ -23,7 +23,8 @@ import { StorefrontDetailsDialog } from "./StorefrontDetailsDialog";
 import { StorefrontCatalogActionBar } from "./StorefrontCatalogActionBar";
 import { StorefrontContextPanel } from "./StorefrontContextPanel";
 import { StorefrontTagSidebar } from "./StorefrontTagSidebar";
-import { TierRibbon, type TemplateTier } from "@/lib/tier-config";
+import { BadgeRibbon, TEMPLATE_CARD_BADGE_RIBBON } from "@/lib/badge-config";
+import { OwnershipBadge, TierBadge, type TemplateTier } from "@/lib/tier-config";
 import {
   applyStorefrontCatalogControls,
   parseManifest,
@@ -85,8 +86,6 @@ function StorefrontLayoutSkeleton() {
 // Template card
 // ---------------------------------------------------------------------------
 
-const TEMPLATE_CARD_TIER_RIBBON =
-  "pointer-events-none absolute top-4 -right-12 z-20 flex h-8 w-40 items-center justify-center border-transparent py-0 pt-0 text-[10px] font-bold uppercase leading-none tracking-wider whitespace-nowrap rotate-45 drop-shadow-sm";
 
 function TemplateCard({
   template,
@@ -96,9 +95,13 @@ function TemplateCard({
   atLicenseCap: boolean;
 }) {
   const manifest = parseManifest(template.manifest);
-  const displayName = manifest.displayName ?? slugToTitle(template.template_slug);
+  const displayName =
+    template.title?.trim() ||
+    manifest.displayName ||
+    slugToTitle(template.template_slug ?? "");
   const description = template.description || null;
   const imageUrl = template.thumbnail_url || null;
+  const tier = (template.tier ?? "free") as TemplateTier;
   const [detailOpen, setDetailOpen] = useState(false);
 
   return (
@@ -144,30 +147,10 @@ function TemplateCard({
             </div>
           )}
 
-          {/* Lock overlay for unlicensed templates */}
-          {!template.isLicensed ? (
-            <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1.5 bg-zinc-900/50 backdrop-blur-[2px]">
-              <svg
-                className="h-6 w-6 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                />
-              </svg>
-              <span className="text-[11px] font-semibold text-white">
-                {atLicenseCap ? "License cap reached" : "Not licensed"}
-              </span>
-            </div>
-          ) : null}
-
-          <TierRibbon tier={template.tier} className={TEMPLATE_CARD_TIER_RIBBON} />
+          <BadgeRibbon
+            badgeType={template.badge_type}
+            className={TEMPLATE_CARD_BADGE_RIBBON}
+          />
         </div>
 
         {/* Card body */}
@@ -178,30 +161,8 @@ function TemplateCard({
             </h3>
 
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-              {template.isLicensed ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  Owned
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-500">
-                  <svg
-                    className="h-3 w-3"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-                    />
-                  </svg>
-                  Locked
-                </span>
-              )}
+              <TierBadge tier={tier} />
+              <OwnershipBadge owned={template.isLicensed} />
             </div>
           </div>
 
@@ -385,7 +346,7 @@ function enrichCatalogRows(
 ): EnrichedTemplate[] {
   return rows.map((row) => ({
     ...row,
-    isLicensed: licensedIds.has(row.id),
+    isLicensed: row.id != null && licensedIds.has(row.id),
   }));
 }
 

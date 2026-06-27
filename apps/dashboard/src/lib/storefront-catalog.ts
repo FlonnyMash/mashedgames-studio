@@ -48,7 +48,7 @@ function applyCatalogSearch<T extends { or: (filters: string) => T }>(
   const escaped = escapeIlikePattern(trimmed);
   const pattern = `%${escaped}%`;
   return query.or(
-    `description.ilike.${pattern},template_slug.ilike.${pattern},manifest->>displayName.ilike.${pattern}`,
+    `description.ilike.${pattern},title.ilike.${pattern},template_slug.ilike.${pattern},manifest->>displayName.ilike.${pattern}`,
   );
 }
 

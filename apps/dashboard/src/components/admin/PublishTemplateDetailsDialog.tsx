@@ -6,8 +6,15 @@ import {
   ThumbnailUploadWell,
 } from "@/components/studio/TemplateMetaFormFields";
 import { TemplateTagSelector } from "@/components/admin/TemplateTagSelector";
-import { TierBadge } from "@/lib/tier-config";
+import { adminApiFetch } from "@/lib/admin-api-client";
+import {
+  BadgeRibbon,
+  TEMPLATE_CARD_BADGE_RIBBON,
+  getBadgeStyle,
+  type BadgeType,
+} from "@/lib/badge-config";
 import type { TemplateMeta } from "@/lib/template-meta-io";
+import { BADGE_TYPES } from "@mashedgames/shared";
 import {
   Check,
   CheckCircle2,
@@ -34,12 +41,6 @@ const TIER_OPTIONS: { value: Tier; label: string }[] = [
   { value: "enterprise", label: "Enterprise" },
 ];
 
-const TIER_COLORS: Record<Tier, string> = {
-  free: "bg-zinc-100 text-zinc-600",
-  premium: "bg-amber-50 text-amber-700 border border-amber-200",
-  enterprise: "bg-violet-50 text-violet-700 border border-violet-200",
-};
-
 const TABS: { id: DialogTab; label: string }[] = [
   { id: "settings", label: "Settings" },
   { id: "content", label: "Content & Media" },
@@ -51,13 +52,13 @@ function StorePreviewCard({
   templateId,
   description,
   thumbnailUrl,
-  tier,
+  badgeType,
 }: {
   displayName: string;
   templateId: string;
   description: string;
   thumbnailUrl: string | undefined;
-  tier: Tier;
+  badgeType: BadgeType | null;
 }) {
   return (
     <div className="mx-auto w-full max-w-sm overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
@@ -91,7 +92,12 @@ function StorePreviewCard({
           </div>
         )}
 
-        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-zinc-900/50 backdrop-blur-[2px]">
+        <BadgeRibbon
+          badgeType={badgeType}
+          className={TEMPLATE_CARD_BADGE_RIBBON}
+        />
+
+        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1.5 bg-zinc-900/50 backdrop-blur-[2px]">
           <svg
             className="h-6 w-6 text-white"
             fill="none"
@@ -115,7 +121,6 @@ function StorePreviewCard({
           <h3 className="text-sm font-semibold leading-tight text-zinc-900">
             {displayName}
           </h3>
-          <TierBadge tier={tier} className="shrink-0" />
         </div>
 
         {description.trim() ? (
@@ -169,8 +174,14 @@ export function PublishTemplateDetailsDialog({
   const [activeTab, setActiveTab] = useState<DialogTab>("settings");
 
   const [loadingMeta, setLoadingMeta] = useState(false);
+  const [title, setTitle] = useState(displayName);
   const [description, setDescription] = useState("");
   const [tutorial, setTutorial] = useState("");
+  const [badgeType, setBadgeType] = useState<BadgeType | null>(null);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [tagsDirty, setTagsDirty] = useState(false);
+  const [cloudThumbnailUrl, setCloudThumbnailUrl] = useState("");
+  const [cloudPreviewUrls, setCloudPreviewUrls] = useState<string[]>([]);
   const [thumbnailUrl, setThumbnailUrl] = useState<string | undefined>(
     undefined,
   );
@@ -181,22 +192,39 @@ export function PublishTemplateDetailsDialog({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
 
+  const markDirty = () => {
+    setIsDirty(true);
+    setSaveSuccess(false);
+  };
+
   const loadMeta = useCallback(async () => {
     setLoadingMeta(true);
     try {
-      const res = await fetch(
-        `/api/templates/${encodeURIComponent(templateId)}/meta`,
-      );
-      const data = (await res.json()) as {
+      const [localRes, cloudJson] = await Promise.all([
+        fetch(`/api/templates/${encodeURIComponent(templateId)}/meta`),
+        adminApiFetch<{
+          ok: true;
+          title: string;
+          description: string;
+          badgeType: BadgeType | null;
+          tutorial: string;
+          thumbnailUrl: string;
+          previewUrls: string[];
+          tagIds: string[];
+        }>(`/api/templates/${encodeURIComponent(templateId)}/metadata`).catch(
+          () => null,
+        ),
+      ]);
+
+      const data = (await localRes.json()) as {
         ok?: boolean;
         meta?: TemplateMeta;
       };
-      if (res.ok && data.ok && data.meta) {
+
+      if (localRes.ok && data.ok && data.meta) {
         const m = data.meta;
         setDescription(m.description);
         setTutorial(m.tutorial);
-        setIsDirty(false);
-        setSaveSuccess(false);
         setThumbnailUrl(
           m.thumbnail
             ? `/api/templates/${encodeURIComponent(templateId)}/meta/asset?file=${encodeURIComponent(m.thumbnail)}`
@@ -209,12 +237,29 @@ export function PublishTemplateDetailsDialog({
         setPreviewUrls(urls);
         setPreviewFilenames(m.previews);
       }
+
+      if (cloudJson?.ok) {
+        if (cloudJson.title.trim()) setTitle(cloudJson.title);
+        else setTitle(displayName);
+        if (cloudJson.description.trim()) setDescription(cloudJson.description);
+        if (cloudJson.tutorial.trim()) setTutorial(cloudJson.tutorial);
+        setBadgeType(cloudJson.badgeType);
+        setCloudThumbnailUrl(cloudJson.thumbnailUrl);
+        setCloudPreviewUrls(cloudJson.previewUrls);
+        setSelectedTagIds(cloudJson.tagIds);
+      } else {
+        setTitle(displayName);
+      }
+
+      setIsDirty(false);
+      setTagsDirty(false);
+      setSaveSuccess(false);
     } catch {
-      // Non-fatal — meta may not exist yet
+      setTitle(displayName);
     } finally {
       setLoadingMeta(false);
     }
-  }, [templateId]);
+  }, [displayName, templateId]);
 
   useEffect(() => {
     if (open) {
@@ -234,23 +279,35 @@ export function PublishTemplateDetailsDialog({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose, saving, isPublishing]);
 
-  const handleSaveContent = async () => {
+  const handleSaveChanges = async () => {
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch(
-        `/api/templates/${encodeURIComponent(templateId)}/meta`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ description, tutorial }),
+      const result = await adminApiFetch<{
+        ok: true;
+        thumbnailUrl: string;
+        previewUrls: string[];
+      }>(`/api/templates/${encodeURIComponent(templateId)}/metadata`, {
+        method: "PUT",
+        body: {
+          title,
+          description,
+          badgeType,
+          tutorial,
+          thumbnailUrl: cloudThumbnailUrl,
+          previewUrls: cloudPreviewUrls,
+          tagIds: selectedTagIds,
         },
-      );
-      const data = (await res.json()) as { ok?: boolean; error?: string };
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error ?? "Could not save changes.");
+      });
+
+      if (!result.ok) {
+        throw new Error(result.error ?? "Could not save changes.");
       }
+
+      setCloudThumbnailUrl(result.thumbnailUrl);
+      setCloudPreviewUrls(result.previewUrls);
       setIsDirty(false);
+      setTagsDirty(false);
       setSaveSuccess(true);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Save failed.");
@@ -263,6 +320,7 @@ export function PublishTemplateDetailsDialog({
     const updated = previewFilenames.filter((_, i) => i !== index);
     setPreviewFilenames(updated);
     setPreviewUrls((prev) => prev.filter((_, i) => i !== index));
+    markDirty();
     await fetch(`/api/templates/${encodeURIComponent(templateId)}/meta`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -400,12 +458,55 @@ export function PublishTemplateDetailsDialog({
                       </option>
                     ))}
                   </select>
-                  <span
-                    className={`rounded-md px-2 py-0.5 text-xs font-medium ${TIER_COLORS[selectedTier]}`}
-                  >
-                    {selectedTier}
-                  </span>
                 </div>
+              </div>
+
+              <div className="border-t border-zinc-100 pt-5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Badge type
+                </span>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBadgeType(null);
+                      markDirty();
+                    }}
+                    disabled={settingsDisabled}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                      badgeType === null
+                        ? "border-zinc-900 bg-zinc-900 text-white"
+                        : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
+                    }`}
+                  >
+                    None
+                  </button>
+                  {BADGE_TYPES.map((type) => {
+                    const badgeStyle = getBadgeStyle(type);
+                    return (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => {
+                        setBadgeType(type);
+                        markDirty();
+                      }}
+                      disabled={settingsDisabled}
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${
+                        badgeType === type
+                          ? `${badgeStyle?.ribbonClass ?? ""} border-transparent`
+                          : "border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300"
+                      }`}
+                    >
+                      {badgeStyle?.label ?? type}
+                    </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">
+                  Storefront ribbon shown on template cards. Saved with metadata
+                  — no republish required.
+                </p>
               </div>
 
               <div className="border-t border-zinc-100 pt-5">
@@ -456,30 +557,56 @@ export function PublishTemplateDetailsDialog({
               </div>
             ) : (
               <div className="space-y-6">
+                <div>
+                  <label
+                    htmlFor={`title-${templateId}`}
+                    className="mb-1.5 block text-[11px] font-semibold uppercase tracking-wider text-zinc-400"
+                  >
+                    Storefront title
+                  </label>
+                  <input
+                    id={`title-${templateId}`}
+                    type="text"
+                    value={title}
+                    onChange={(e) => {
+                      setTitle(e.target.value);
+                      markDirty();
+                    }}
+                    maxLength={200}
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none transition-colors focus:border-zinc-400 focus:ring-2 focus:ring-zinc-200"
+                  />
+                </div>
+
                 <TemplateContentFields
                   description={description}
                   tutorial={tutorial}
                   onDescriptionChange={(value) => {
                     setDescription(value);
-                    setIsDirty(true);
-                    setSaveSuccess(false);
+                    markDirty();
                   }}
                   onTutorialChange={(value) => {
                     setTutorial(value);
-                    setIsDirty(true);
-                    setSaveSuccess(false);
+                    markDirty();
                   }}
                 />
 
                 <div className="border-t border-zinc-100 pt-6">
-                  <TemplateTagSelector templateSlug={templateId} />
+                  <TemplateTagSelector
+                    templateSlug={templateId}
+                    mode="unified"
+                    onDirtyChange={setTagsDirty}
+                    onSelectionChange={setSelectedTagIds}
+                  />
                 </div>
 
                 <div className="border-t border-zinc-100 pt-6">
                   <ThumbnailUploadWell
                     templateId={templateId}
                     currentUrl={thumbnailUrl}
-                    onUploaded={(url) => setThumbnailUrl(url)}
+                    onUploaded={(url) => {
+                      setThumbnailUrl(url);
+                      markDirty();
+                    }}
                   />
                 </div>
 
@@ -489,6 +616,7 @@ export function PublishTemplateDetailsDialog({
                   onAdded={(url, filename) => {
                     setPreviewUrls((prev) => [...prev, url]);
                     setPreviewFilenames((prev) => [...prev, filename]);
+                    markDirty();
                   }}
                   onRemoved={(i) => void handlePreviewRemoved(i)}
                 />
@@ -504,11 +632,11 @@ export function PublishTemplateDetailsDialog({
               </p>
               <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 p-6">
                 <StorePreviewCard
-                  displayName={displayName}
+                  displayName={title.trim() || displayName}
                   templateId={templateId}
                   description={description}
                   thumbnailUrl={thumbnailUrl}
-                  tier={selectedTier}
+                  badgeType={badgeType}
                 />
               </div>
             </div>
@@ -524,37 +652,35 @@ export function PublishTemplateDetailsDialog({
           </p>
         ) : null}
 
-        {activeTab === "content" ? (
-          <footer className="shrink-0 border-t border-zinc-100 bg-zinc-50/50 px-6 py-4">
-            <div className="flex items-center justify-end gap-2">
-              {saveSuccess && !isDirty ? (
-                <span
-                  className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600"
-                  role="status"
-                >
-                  <Check className="h-4 w-4" aria-hidden />
-                  Saved
-                </span>
-              ) : null}
-
-              <button
-                type="button"
-                onClick={() => void handleSaveContent()}
-                disabled={!isDirty || saving || loadingMeta}
-                className="inline-flex min-w-[88px] items-center justify-center gap-2 rounded-xl bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+        <footer className="shrink-0 border-t border-zinc-100 bg-zinc-50/50 px-6 py-4">
+          <div className="flex items-center justify-end gap-2">
+            {saveSuccess && !isDirty && !tagsDirty ? (
+              <span
+                className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600"
+                role="status"
               >
-                {saving ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                    Saving…
-                  </>
-                ) : (
-                  "Save content"
-                )}
-              </button>
-            </div>
-          </footer>
-        ) : null}
+                <Check className="h-4 w-4" aria-hidden />
+                Saved
+              </span>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => void handleSaveChanges()}
+              disabled={(!isDirty && !tagsDirty) || saving || loadingMeta}
+              className="inline-flex min-w-[88px] items-center justify-center gap-2 rounded-xl bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                  Saving…
+                </>
+              ) : (
+                "Save Changes"
+              )}
+            </button>
+          </div>
+        </footer>
       </div>
     </div>
   );

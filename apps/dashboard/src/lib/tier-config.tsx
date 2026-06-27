@@ -61,7 +61,7 @@ export function getUnlockedTiers(currentTier: TemplateTier): TemplateTier[] {
 // ---------------------------------------------------------------------------
 
 const TIER_BADGE_BASE =
-  "inline-flex items-center border-transparent px-2.5 py-0.5 rounded-full text-xs font-bold whitespace-nowrap";
+  "inline-flex items-center border-0 px-2.5 py-0.5 rounded-full text-xs font-bold whitespace-nowrap";
 
 type TierBadgeProps = {
   tier: TemplateTier | string;
@@ -76,6 +76,25 @@ export function TierBadge({ tier, className, children }: TierBadgeProps) {
     : `${TIER_BADGE_BASE} ${style.badgeClass}`;
 
   return <span className={classes}>{children ?? style.label}</span>;
+}
+
+// ---------------------------------------------------------------------------
+// Ownership status badge — storefront card metadata row
+// ---------------------------------------------------------------------------
+
+type OwnershipBadgeProps = {
+  owned: boolean;
+  className?: string;
+};
+
+export function OwnershipBadge({ owned, className }: OwnershipBadgeProps) {
+  if (!owned) return null;
+
+  const classes = className
+    ? `${TIER_BADGE_BASE} bg-emerald-50 text-emerald-800 ${className}`
+    : `${TIER_BADGE_BASE} bg-emerald-50 text-emerald-800`;
+
+  return <span className={classes}>Owned</span>;
 }
 
 // ---------------------------------------------------------------------------

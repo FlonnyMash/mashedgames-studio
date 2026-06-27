@@ -556,7 +556,10 @@ export function StorefrontDetailsDialog({
   const [loadStartTime] = useState(() => Date.now());
   const [loadTimeMs, setLoadTimeMs] = useState<number | null>(null);
 
-  const displayName = manifest.displayName ?? slugToTitle(template.template_slug);
+  const displayName =
+    template.title?.trim() ||
+    manifest.displayName ||
+    slugToTitle(template.template_slug ?? "");
   const featureModules: string[] = Array.isArray(manifest.supportsUI)
     ? manifest.supportsUI
     : [];

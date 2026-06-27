@@ -2,7 +2,7 @@
 
 import type { TagWithCategory } from "@/lib/tag-api-types";
 import { Loader2, Plus, Search, X } from "lucide-react";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { adminApiFetch } from "@/lib/admin-api-client";
 import { useAuthStore } from "@/store/useAuthStore";
@@ -10,14 +10,18 @@ import { useAuthStore } from "@/store/useAuthStore";
 type TemplateTagSelectorProps = {
   templateSlug: string;
   disabled?: boolean;
+  mode?: "standalone" | "unified";
   onDirtyChange?: (dirty: boolean) => void;
+  onSelectionChange?: (tagIds: string[]) => void;
   onSaved?: () => void;
 };
 
 export function TemplateTagSelector({
   templateSlug,
   disabled = false,
+  mode = "standalone",
   onDirtyChange,
+  onSelectionChange,
   onSaved,
 }: TemplateTagSelectorProps) {
   const authIsLoading = useAuthStore((s) => s.isLoading);
@@ -82,14 +86,28 @@ export function TemplateTagSelector({
     void load();
   }, [load]);
 
-  const selectedIds = selected.map((t) => t.id);
+  const selectedIds = useMemo(
+    () => selected.map((t) => t.id),
+    [selected],
+  );
   const isDirty =
     selectedIds.length !== savedIds.length ||
     selectedIds.some((id) => !savedIds.includes(id));
 
+  const lastDirtyRef = useRef(isDirty);
   useEffect(() => {
+    if (lastDirtyRef.current === isDirty) return;
+    lastDirtyRef.current = isDirty;
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
+
+  const lastSelectionKeyRef = useRef("");
+  useEffect(() => {
+    const selectionKey = selectedIds.join("\0");
+    if (lastSelectionKeyRef.current === selectionKey) return;
+    lastSelectionKeyRef.current = selectionKey;
+    onSelectionChange?.(selectedIds);
+  }, [onSelectionChange, selectedIds]);
 
   useEffect(() => {
     if (!open) return;
@@ -280,7 +298,7 @@ export function TemplateTagSelector({
         ) : null}
       </div>
 
-      {isDirty ? (
+      {mode === "standalone" && isDirty ? (
         <button
           type="button"
           onClick={() => void saveTags()}

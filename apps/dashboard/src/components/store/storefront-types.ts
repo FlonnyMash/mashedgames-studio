@@ -66,7 +66,11 @@ export function parseStorefrontSortOption(
 function templateDisplayName(template: EnrichedTemplate): string {
   const manifest = parseManifest(template.manifest);
   const slug = template.template_slug ?? "";
-  return manifest.displayName ?? slugToTitle(slug);
+  return (
+    template.title?.trim() ||
+    manifest.displayName ||
+    slugToTitle(slug)
+  );
 }
 
 function templatePublishedTime(template: EnrichedTemplate): number {

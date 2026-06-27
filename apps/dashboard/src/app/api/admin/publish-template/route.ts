@@ -14,8 +14,11 @@ import {
 import { listTemplateOverviewFromDisk } from "@/lib/template-studio-meta";
 import { resolveEngineBundleDistDir } from "@/lib/template-library-root";
 import {
+  ensureMetaAssetsBucket,
+  resolveVersionedMetaPublicUrls,
+} from "@/lib/template-meta-assets";
+import {
   readTemplateMeta,
-  resolveTemplateMetaDir,
   writeTemplateMeta,
 } from "@/lib/template-meta-io";
 
@@ -39,9 +42,6 @@ const VALID_TIERS = new Set<string>(["free", "premium", "enterprise"]);
 
 /** Bucket for compiled game bundles (private — served only to licensed clients). */
 const BUNDLE_BUCKET = "template-bundles";
-
-/** Bucket for public promotional assets (thumbnail, previews). Must be public. */
-const META_ASSETS_BUCKET = "template-assets";
 
 function validateDemoUrl(demoUrl: string): string | null {
   try {
@@ -132,193 +132,6 @@ function buildEngineBundle(
 }
 
 // ---------------------------------------------------------------------------
-// Meta asset helpers
-// ---------------------------------------------------------------------------
-
-const CONTENT_TYPES: Record<string, string> = {
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png": "image/png",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-  ".mp4": "video/mp4",
-  ".webm": "video/webm",
-};
-
-/**
- * Ensure the public `template-assets` bucket exists. Non-fatal if creation
- * fails — the upload attempt will surface the error instead.
- */
-async function ensureMetaAssetsBucket(
-  serviceClient: ReturnType<typeof createClient<Database>>,
-): Promise<void> {
-  const { data: buckets, error: listError } =
-    await serviceClient.storage.listBuckets();
-
-  if (listError) {
-    console.warn(
-      "[publish-template] Could not list storage buckets:",
-      listError.message,
-    );
-    return;
-  }
-
-  if (!buckets?.find((b) => b.name === META_ASSETS_BUCKET)) {
-    const { error: createError } = await serviceClient.storage.createBucket(
-      META_ASSETS_BUCKET,
-      { public: true },
-    );
-    if (createError) {
-      console.warn(
-        `[publish-template] Could not create "${META_ASSETS_BUCKET}" bucket:`,
-        createError.message,
-      );
-    } else {
-      console.info(
-        `[publish-template] Created public storage bucket "${META_ASSETS_BUCKET}".`,
-      );
-    }
-  }
-}
-
-/**
- * Upload a single local meta asset file to Storage and return its public URL.
- * Returns null on any failure — meta upload errors never abort the publish.
- */
-async function uploadMetaAsset(
-  serviceClient: ReturnType<typeof createClient<Database>>,
-  localPath: string,
-  storagePath: string,
-): Promise<string | null> {
-  if (!existsSync(localPath)) {
-    console.warn(
-      `[publish-template] Meta asset not found on disk, skipping: ${localPath}`,
-    );
-    return null;
-  }
-
-  try {
-    const buffer = readFileSync(localPath);
-    const ext = path.extname(localPath).toLowerCase();
-    const contentType = CONTENT_TYPES[ext] ?? "application/octet-stream";
-
-    const { error: uploadError } = await serviceClient.storage
-      .from(META_ASSETS_BUCKET)
-      .upload(storagePath, buffer, {
-        contentType,
-        upsert: true,
-        cacheControl: "60",
-      });
-
-    if (uploadError) {
-      console.error(
-        `[publish-template] Meta asset upload failed (${storagePath}):`,
-        uploadError.message,
-      );
-      return null;
-    }
-
-    const {
-      data: { publicUrl },
-    } = serviceClient.storage.from(META_ASSETS_BUCKET).getPublicUrl(storagePath);
-
-    return publicUrl;
-  } catch (err) {
-    console.error(
-      `[publish-template] Unexpected error uploading meta asset (${localPath}):`,
-      err,
-    );
-    return null;
-  }
-}
-
-function resolveMetaAssetBasename(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-
-  if (trimmed.includes("file=")) {
-    try {
-      const query = trimmed.includes("?")
-        ? trimmed.slice(trimmed.indexOf("?"))
-        : `?${trimmed}`;
-      const file = new URLSearchParams(query).get("file");
-      if (file) return path.basename(file);
-    } catch {
-      // Fall through to basename normalization.
-    }
-  }
-
-  return path.basename(trimmed.replace(/\\/g, "/"));
-}
-
-function withPublishCacheBust(publicUrl: string, version: string): string {
-  const separator = publicUrl.includes("?") ? "&" : "?";
-  return `${publicUrl}${separator}v=${encodeURIComponent(version)}`;
-}
-
-type MetaPublicUrls = {
-  description: string;
-  tutorial: string;
-  thumbnailUrl: string;
-  previewUrls: string[];
-};
-
-type ExistingMetaUrls = {
-  thumbnailUrl?: string;
-  previewUrls?: string[];
-};
-
-/**
- * Read local template-meta.json, upload any referenced assets to
- * Supabase Storage, and return the resolved public URLs.
- * Assets are stored under a versioned prefix so each publish gets a fresh
- * public URL (avoids CDN/browser cache serving a stale thumbnail).
- * All storage errors are non-fatal — the publish continues regardless.
- */
-async function resolveMetaPublicUrls(
-  serviceClient: ReturnType<typeof createClient<Database>>,
-  templateId: string,
-  version: string,
-  existing: ExistingMetaUrls = {},
-): Promise<MetaPublicUrls> {
-  const meta = readTemplateMeta(templateId);
-  const metaDir = resolveTemplateMetaDir(templateId);
-  const versionedPrefix = `meta/${templateId}/v${version}`;
-
-  // Thumbnail
-  let thumbnailUrl = existing.thumbnailUrl ?? "";
-  if (meta.thumbnail) {
-    const basename = resolveMetaAssetBasename(meta.thumbnail);
-    const localPath = path.join(metaDir, basename);
-    const storagePath = `${versionedPrefix}/${basename}`;
-    const url = await uploadMetaAsset(serviceClient, localPath, storagePath);
-    if (url) thumbnailUrl = withPublishCacheBust(url, version);
-  }
-
-  // Previews (preserve order)
-  const previewUrls: string[] = [];
-  for (const previewFilename of meta.previews) {
-    const basename = resolveMetaAssetBasename(previewFilename);
-    if (!basename) continue;
-    const localPath = path.join(metaDir, basename);
-    const storagePath = `${versionedPrefix}/${basename}`;
-    const url = await uploadMetaAsset(serviceClient, localPath, storagePath);
-    if (url) previewUrls.push(withPublishCacheBust(url, version));
-  }
-
-  if (previewUrls.length === 0 && existing.previewUrls?.length) {
-    previewUrls.push(...existing.previewUrls);
-  }
-
-  return {
-    description: meta.description,
-    tutorial: meta.tutorial,
-    thumbnailUrl,
-    previewUrls,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------------------
 
@@ -368,6 +181,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
+  const slug = templateId;
+
   if (!VALID_TIERS.has(tier)) {
     return Response.json<PublishResponse>(
       { ok: false, error: 'tier must be "free", "premium", or "enterprise".' },
@@ -377,10 +192,10 @@ export async function POST(request: NextRequest): Promise<Response> {
 
   // Validate the templateId exists on disk.
   const knownTemplates = listTemplateOverviewFromDisk();
-  const templateMeta = knownTemplates.find((t) => t.id === templateId);
+  const templateMeta = knownTemplates.find((t) => t.id === slug);
   if (!templateMeta) {
     return Response.json<PublishResponse>(
-      { ok: false, error: `Template "${templateId}" not found on disk.` },
+      { ok: false, error: `Template "${slug}" not found on disk.` },
       { status: 404 },
     );
   }
@@ -473,22 +288,19 @@ export async function POST(request: NextRequest): Promise<Response> {
   // --- Ensure the public meta-assets bucket exists (non-fatal) ---
   await ensureMetaAssetsBucket(serviceClient);
 
-  const { data: existingTemplate } = await serviceClient
-    .from("templates")
-    .select("thumbnail_url, preview_urls")
+  const { data: existingMetadata } = await serviceClient
+    .from("template_metadata")
+    .select("thumbnail_url, preview_urls, badge_type")
     .eq("template_slug", templateId)
     .maybeSingle();
 
-  // --- Upload local meta assets and resolve public URLs ---
-  // Non-fatal: if meta uploads fail we still publish the bundle, just without
-  // rich storefront content. Errors are already logged inside the helper.
-  const metaUrls = await resolveMetaPublicUrls(
+  const metaUrls = await resolveVersionedMetaPublicUrls(
     serviceClient,
     templateId,
     version,
     {
-      thumbnailUrl: existingTemplate?.thumbnail_url ?? undefined,
-      previewUrls: existingTemplate?.preview_urls ?? undefined,
+      thumbnailUrl: existingMetadata?.thumbnail_url ?? undefined,
+      previewUrls: existingMetadata?.preview_urls ?? undefined,
     },
   );
 
@@ -542,11 +354,29 @@ export async function POST(request: NextRequest): Promise<Response> {
     is_latest: true,
     yanked: false,
     published_at: publishedAt,
-    description: metaUrls.description,
-    tutorial: metaUrls.tutorial,
-    thumbnail_url: metaUrls.thumbnailUrl,
-    preview_urls: metaUrls.previewUrls,
+    description: "",
+    tutorial: "",
+    thumbnail_url: "",
+    preview_urls: [] as string[],
   };
+
+  async function bootstrapTemplateMetadata(displayName: string) {
+    const { error } = await serviceClient.from("template_metadata").upsert(
+      {
+        template_slug: slug,
+        title: displayName,
+        description: metaUrls.description,
+        badge_type: existingMetadata?.badge_type ?? null,
+        tutorial: metaUrls.tutorial,
+        thumbnail_url: metaUrls.thumbnailUrl,
+        preview_urls: metaUrls.previewUrls,
+      },
+      { onConflict: "template_slug" },
+    );
+    if (error) {
+      console.warn("[publish-template] template_metadata bootstrap failed:", error.message);
+    }
+  }
 
   const { data: inserted, error: insertError } = await serviceClient
     .from("templates")
@@ -580,6 +410,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         `tier=${tier} id=${updated.id} by=${authResult.userId}`,
     );
 
+    await bootstrapTemplateMetadata(templateMeta.displayName);
     revalidatePath("/dashboard/store");
 
     return Response.json<PublishResponse>(
@@ -602,6 +433,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       `tier=${tier} id=${inserted.id} by=${authResult.userId}`,
   );
 
+  await bootstrapTemplateMetadata(templateMeta.displayName);
   revalidatePath("/dashboard/store");
 
   return Response.json<PublishResponse>(

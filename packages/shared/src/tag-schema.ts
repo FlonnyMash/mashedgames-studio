@@ -178,7 +178,13 @@ export const PublishedTemplateWithTagsSchema = z.object({
   isLatest: z.boolean(),
   publishedAt: z.string().datetime(),
   yanked: z.boolean(),
+  /** Slug-level metadata — sourced from template_metadata table. */
+  title: z.string().default(""),
   description: z.string().default(""),
+  badgeType: z
+    .enum(["NEW", "POPULAR", "HOT"])
+    .nullable()
+    .default(null),
   tutorial: z.string().default(""),
   thumbnailUrl: z.string().default(""),
   previewUrls: z.array(z.string()).default([]),
@@ -238,6 +244,36 @@ export const PublishedTagUsageRowSchema = z.object({
 
 export type PublishedTagUsageRow = z.infer<typeof PublishedTagUsageRowSchema>;
 
+/** Snake_case row shape from `published_templates_with_tags` view. */
+export const PublishedCatalogRowSchema = z.object({
+  id: z.string().uuid(),
+  template_slug: z.string().min(1),
+  version: z.string(),
+  tier: z.enum(["free", "premium", "enterprise"]),
+  manifest: z.unknown().default({}),
+  storage_key: z.string(),
+  checksum: z.string(),
+  bundle_signature: z.string(),
+  is_latest: z.boolean(),
+  published_at: z.string(),
+  yanked: z.boolean(),
+  title: z.string().nullable().default(""),
+  description: z.string().nullable().default(""),
+  badge_type: z
+    .enum(["NEW", "POPULAR", "HOT"])
+    .nullable()
+    .default(null),
+  tutorial: z.string().nullable().default(""),
+  thumbnail_url: z.string().nullable().default(""),
+  preview_urls: z.array(z.string()).nullable().default([]),
+  tags: z.unknown().default([]),
+  popularity_score: z.coerce.number().int().min(0).default(0),
+});
+
+export type PublishedCatalogRowInput = z.infer<
+  typeof PublishedCatalogRowSchema
+>;
+
 // ---------------------------------------------------------------------------
 // Row → domain mappers
 // ---------------------------------------------------------------------------
@@ -283,6 +319,54 @@ export function publishedTagUsageFromRow(row: PublishedTagUsageRow): PublishedTa
     categoryName: row.category_name,
     categorySortOrder: row.category_sort_order,
     usageCount: row.usage_count,
+  };
+}
+
+function parseCatalogTagsJson(tags: unknown): PublishedTagRef[] {
+  if (!Array.isArray(tags)) return [];
+  return tags.filter(
+    (item): item is PublishedTagRef =>
+      Boolean(
+        item &&
+          typeof item === "object" &&
+          "slug" in item &&
+          typeof (item as { slug: unknown }).slug === "string",
+      ),
+  );
+}
+
+/** Maps a `published_templates_with_tags` view row to camelCase domain shape. */
+export function publishedTemplateWithTagsFromRow(
+  input: unknown,
+): PublishedTemplateWithTags {
+  const row = PublishedCatalogRowSchema.parse(input);
+  const manifest =
+    row.manifest &&
+    typeof row.manifest === "object" &&
+    !Array.isArray(row.manifest)
+      ? (row.manifest as Record<string, unknown>)
+      : {};
+
+  return {
+    id: row.id,
+    templateSlug: row.template_slug,
+    version: row.version,
+    tier: row.tier,
+    manifest,
+    storageKey: row.storage_key,
+    checksum: row.checksum,
+    bundleSignature: row.bundle_signature,
+    isLatest: row.is_latest,
+    publishedAt: row.published_at,
+    yanked: row.yanked,
+    title: row.title ?? "",
+    description: row.description ?? "",
+    badgeType: row.badge_type,
+    tutorial: row.tutorial ?? "",
+    thumbnailUrl: row.thumbnail_url ?? "",
+    previewUrls: row.preview_urls ?? [],
+    tags: parseCatalogTagsJson(row.tags),
+    popularityScore: row.popularity_score,
   };
 }
 

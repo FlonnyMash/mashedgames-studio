@@ -277,6 +277,42 @@ export type Database = {
           },
         ]
       }
+      template_metadata: {
+        Row: {
+          badge_type: Database["public"]["Enums"]["template_badge_type"] | null
+          created_at: string
+          description: string
+          preview_urls: string[]
+          template_slug: string
+          thumbnail_url: string
+          title: string
+          tutorial: string
+          updated_at: string
+        }
+        Insert: {
+          badge_type?: Database["public"]["Enums"]["template_badge_type"] | null
+          created_at?: string
+          description?: string
+          preview_urls?: string[]
+          template_slug: string
+          thumbnail_url?: string
+          title?: string
+          tutorial?: string
+          updated_at?: string
+        }
+        Update: {
+          badge_type?: Database["public"]["Enums"]["template_badge_type"] | null
+          created_at?: string
+          description?: string
+          preview_urls?: string[]
+          template_slug?: string
+          thumbnail_url?: string
+          title?: string
+          tutorial?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       template_tags: {
         Row: {
           created_at: string
@@ -384,6 +420,7 @@ export type Database = {
       }
       published_templates_with_tags: {
         Row: {
+          badge_type: Database["public"]["Enums"]["template_badge_type"] | null
           bundle_signature: string | null
           checksum: string | null
           description: string | null
@@ -398,6 +435,7 @@ export type Database = {
           template_slug: string | null
           thumbnail_url: string | null
           tier: Database["public"]["Enums"]["template_tier"] | null
+          title: string | null
           tutorial: string | null
           version: string | null
           yanked: boolean | null
@@ -415,10 +453,24 @@ export type Database = {
       }
       get_storefront_tag_filters: { Args: never; Returns: Json }
       is_studio_admin: { Args: never; Returns: boolean }
+      sync_template_metadata_and_tags: {
+        Args: {
+          p_badge_type: Database["public"]["Enums"]["template_badge_type"]
+          p_description: string
+          p_preview_urls: string[]
+          p_tag_ids: string[]
+          p_template_slug: string
+          p_thumbnail_url: string
+          p_title: string
+          p_tutorial: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       campaign_status: "active" | "expired" | "suspended"
       org_plan: "starter" | "growth" | "enterprise"
+      template_badge_type: "NEW" | "POPULAR" | "HOT"
       template_tier: "free" | "premium" | "enterprise"
       user_role: "studio_admin" | "b2b_user"
     }
@@ -550,6 +602,7 @@ export const Constants = {
     Enums: {
       campaign_status: ["active", "expired", "suspended"],
       org_plan: ["starter", "growth", "enterprise"],
+      template_badge_type: ["NEW", "POPULAR", "HOT"],
       template_tier: ["free", "premium", "enterprise"],
       user_role: ["studio_admin", "b2b_user"],
     },

@@ -13,6 +13,7 @@ const ALLOWED_CHANNELS = new Set([
   "admin:publish-template",
   "admin:ref-data",
   "admin:provision-license",
+  "admin:template-metadata",
   "admin:fetch",
   "license:check-eligibility",
   "store:load-catalog",

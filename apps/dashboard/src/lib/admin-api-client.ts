@@ -18,6 +18,20 @@ type AdminFetchResult<T = unknown> =
   | ({ ok: true } & T)
   | { ok: false; error: string; status?: number };
 
+const TEMPLATE_METADATA_PATH = /^\/api\/templates\/([^/?#]+)\/metadata\/?$/;
+
+function parseTemplateMetadataPath(pathname: string): string | null {
+  const match = pathname.match(TEMPLATE_METADATA_PATH);
+  if (!match?.[1]) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
+}
+
 /**
  * Authenticated fetch to dashboard admin/template tag API routes.
  * - Web: Bearer token from supabase.auth.getSession()
@@ -48,11 +62,21 @@ export async function adminApiFetch<T extends Record<string, unknown>>(
     }
 
     try {
-      const result = (await electron.ipcRenderer.invoke("admin:fetch", {
-        pathname,
-        method: init.method ?? "GET",
-        body: init.body,
-      })) as AdminFetchResult<T> & { status?: number };
+      const templateSlug = parseTemplateMetadataPath(pathname);
+      const result = (await electron.ipcRenderer.invoke(
+        templateSlug ? "admin:template-metadata" : "admin:fetch",
+        templateSlug
+          ? {
+              templateSlug,
+              method: init.method ?? "GET",
+              body: init.body,
+            }
+          : {
+              pathname,
+              method: init.method ?? "GET",
+              body: init.body,
+            },
+      )) as AdminFetchResult<T> & { status?: number };
 
       if (!result || typeof result !== "object") {
         return { ok: false, error: "Invalid IPC response." };
