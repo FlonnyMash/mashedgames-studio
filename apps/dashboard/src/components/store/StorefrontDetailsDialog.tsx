@@ -1,23 +1,43 @@
 "use client";
 
-import { useId, useRef, useState, type ReactNode } from "react";
-import { Gamepad2, Lock, Loader2, Package, X, Zap } from "lucide-react";
+import { useId, useState, useEffect, useCallback, useMemo, useRef, type ReactNode, type MouseEvent } from "react";
+import type { Editor } from "@tiptap/core";
+import { Gamepad2, Lock, Loader2, Pencil, Play, Settings2, X } from "lucide-react";
 import type { Tables } from "@/lib/supabaseClient";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuthStore } from "@/store/useAuthStore";
 import { claimGameViaIpc } from "@/lib/store-ipc";
 import { useGameLibraryStore } from "@/store/useGameLibraryStore";
 import { toast } from "sonner";
-import { getTierStyle, TierBadge } from "@/lib/tier-config";
+import { BadgePill, getBadgeStyle } from "@/lib/badge-config";
+import { getTierStyle, TierBadge, type TemplateTier } from "@/lib/tier-config";
 import {
   parseManifest,
   slugToTitle,
   type EnrichedTemplate,
 } from "./storefront-types";
-
-// ---------------------------------------------------------------------------
-// Feature pill config
-// ---------------------------------------------------------------------------
+import { StorefrontDemoPreview } from "./StorefrontDemoPreview";
+import {
+  sanitizeControlsForSave,
+  TemplateControlsEditor,
+} from "./TemplateControlsEditor";
+import { useTheaterMode } from "@/lib/theater-preview-styles";
+import { RichHtmlContent } from "@/components/ui/RichHtmlContent";
+import { InlineRichTextEditor } from "@/components/ui/InlineRichTextEditor";
+import { InlineTitleEditor } from "@/components/ui/InlineTitleEditor";
+import { StorefrontEditMetadataPanel } from "@/components/store/StorefrontEditMetadataPanel";
+import { StorefrontRichTextToolbarDock } from "@/components/store/StorefrontRichTextToolbarDock";
+import { adminApiFetch } from "@/lib/admin-api-client";
+import type { TemplateControlEntry } from "@mashedgames/shared";
+import {
+  isEmptyRichHtml,
+  normalizeEditorContent,
+  normalizeRichContentForCompare,
+} from "@/lib/rich-html-content";
+import { cn } from "@/lib/utils";
+import { type BadgeType } from "@mashedgames/shared";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 const UI_MODULE_LABELS: Record<string, string> = {
   highscore: "Highscore",
@@ -98,180 +118,6 @@ function formatPublishedAt(iso: string): string {
   }
 }
 
-type LoadTier = "fast" | "moderate" | "slow";
-
-function getLoadTier(seconds: number): LoadTier {
-  if (seconds <= 0.2) return "fast";
-  if (seconds <= 0.7) return "moderate";
-  return "slow";
-}
-
-const LOAD_TIER_BADGE: Record<LoadTier, string> = {
-  fast: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  moderate: "border-amber-200 bg-amber-50 text-amber-700",
-  slow: "border-red-200 bg-red-50 text-red-700",
-};
-
-const LOAD_TIER_LABEL: Record<LoadTier, string> = {
-  fast: "Excellent",
-  moderate: "Acceptable",
-  slow: "Slow",
-};
-
-const LOAD_TIER_DOT: Record<LoadTier, string> = {
-  fast: "bg-emerald-500",
-  moderate: "bg-amber-500",
-  slow: "bg-red-500",
-};
-
-function DemoPerformanceBadge({
-  loadTimeMs,
-  demoSizeKb,
-}: {
-  loadTimeMs: number | null;
-  demoSizeKb?: number;
-}) {
-  const badgeRef = useRef<HTMLSpanElement>(null);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [showInfo, setShowInfo] = useState(false);
-  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
-  const loadSeconds = loadTimeMs !== null ? loadTimeMs / 1000 : null;
-  const tier =
-    loadSeconds !== null ? getLoadTier(loadSeconds) : null;
-  const badgeCls =
-    tier !== null ? LOAD_TIER_BADGE[tier] : "border-zinc-200 bg-zinc-50 text-zinc-600";
-
-  const cancelHide = () => {
-    if (hideTimerRef.current) {
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = null;
-    }
-  };
-
-  const scheduleHide = () => {
-    cancelHide();
-    hideTimerRef.current = setTimeout(() => setShowInfo(false), 120);
-  };
-
-  const openInfo = () => {
-    cancelHide();
-    const el = badgeRef.current;
-    if (el) {
-      const rect = el.getBoundingClientRect();
-      setTooltipPos({
-        top: rect.bottom + 8,
-        left: Math.max(12, rect.right - 288),
-      });
-    }
-    setShowInfo(true);
-  };
-
-  return (
-    <div className="relative">
-      <span
-        ref={badgeRef}
-        tabIndex={0}
-        onMouseEnter={openInfo}
-        onMouseLeave={scheduleHide}
-        onFocus={openInfo}
-        onBlur={scheduleHide}
-        className={`inline-flex cursor-help items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium shadow-sm transition-colors ${badgeCls}`}
-        aria-describedby={showInfo ? "demo-perf-info" : undefined}
-      >
-        <Zap className="h-3 w-3 shrink-0" aria-hidden />
-        Load Time:{" "}
-        {loadTimeMs === null ? (
-          <>
-            <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
-            <span className="sr-only">Measuring load time</span>
-          </>
-        ) : (
-          `${loadSeconds!.toFixed(2)}s`
-        )}
-      </span>
-
-      {showInfo ? (
-        <div
-          id="demo-perf-info"
-          role="tooltip"
-          style={{ top: tooltipPos.top, left: tooltipPos.left }}
-          onMouseEnter={cancelHide}
-          onMouseLeave={scheduleHide}
-          className="fixed z-[100] w-72 rounded-xl border border-zinc-200 bg-white p-4 shadow-lg ring-1 ring-zinc-950/5"
-        >
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
-            Demo performance
-          </p>
-
-          <div className="mt-3 space-y-2">
-            <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-zinc-500">Load time</span>
-              <span className="font-semibold text-zinc-900">
-                {loadTimeMs === null ? (
-                  <span className="inline-flex items-center gap-1.5 text-zinc-400">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                    Measuring…
-                  </span>
-                ) : (
-                  <>
-                    {loadSeconds!.toFixed(2)}s
-                    {tier ? (
-                      <span className="ml-1.5 text-xs font-medium text-zinc-500">
-                        ({LOAD_TIER_LABEL[tier]})
-                      </span>
-                    ) : null}
-                  </>
-                )}
-              </span>
-            </div>
-
-            {typeof demoSizeKb === "number" ? (
-              <div className="flex items-center justify-between gap-3 text-sm">
-                <span className="inline-flex items-center gap-1.5 text-zinc-500">
-                  <Package className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                  Bundle size
-                </span>
-                <span className="font-semibold text-zinc-900">
-                  {(demoSizeKb / 1024).toFixed(2)} MB
-                </span>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mt-4 border-t border-zinc-100 pt-3">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
-              Load time scale
-            </p>
-            <ul className="mt-2 space-y-1.5">
-              {(
-                [
-                  ["fast", "≤ 0.20s", "Excellent — near-instant"],
-                  ["moderate", "0.21 – 0.70s", "Acceptable"],
-                  ["slow", "> 0.70s", "Needs optimization"],
-                ] as const
-              ).map(([key, range, label]) => (
-                <li key={key} className="flex items-center gap-2 text-xs text-zinc-600">
-                  <span
-                    className={`h-2 w-2 shrink-0 rounded-full ${LOAD_TIER_DOT[key]}`}
-                    aria-hidden
-                  />
-                  <span className="font-medium text-zinc-700">{range}</span>
-                  <span className="text-zinc-400">— {label}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          <p className="mt-3 text-[11px] leading-relaxed text-zinc-400">
-            Load time was measured live in your browser just now. Bundle size reflects
-            the last deployed demo build.
-          </p>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // FeaturePill
 // ---------------------------------------------------------------------------
@@ -312,10 +158,12 @@ function AcquireCTA({
   template,
   atLicenseCap,
   onClose,
+  tone = "default",
 }: {
   template: EnrichedTemplate;
   atLicenseCap: boolean;
   onClose: () => void;
+  tone?: "default" | "hero" | "theater";
 }) {
   const addClaimedTemplate = useGameLibraryStore((s) => s.addClaimedTemplate);
   const [ctaState, setCtaState] = useState<CtaState>(() => {
@@ -328,14 +176,22 @@ function AcquireCTA({
 
   const resolvedOwned = template.isLicensed || ctaState === "owned";
   const tierLabel = getTierStyle(template.tier).label;
+  const isHero = tone === "hero";
+  const isTheater = tone === "theater";
 
   if (resolvedOwned) {
     return (
       <button
         type="button"
-        className="w-full rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
+        className={
+          isTheater
+            ? "inline-flex min-w-[12rem] items-center justify-center rounded-full bg-white px-8 py-3.5 text-sm font-semibold text-zinc-900 shadow-lg transition-all hover:bg-zinc-100 hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+            : isHero
+              ? "w-full rounded-xl bg-white px-6 py-3 text-sm font-semibold text-zinc-900 transition-colors hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 sm:w-auto"
+              : "w-full rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
+        }
       >
-        Open in Engine
+        {isTheater ? "Start now" : "Open in Engine"}
       </button>
     );
   }
@@ -344,7 +200,11 @@ function AcquireCTA({
     return (
       <div
         aria-disabled="true"
-        className="w-full cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-100 px-4 py-3 text-center text-sm font-medium text-zinc-400 select-none"
+        className={
+          isTheater
+            ? "inline-flex min-w-[12rem] cursor-not-allowed items-center justify-center rounded-full border border-white/10 bg-white/5 px-8 py-3.5 text-sm font-medium text-zinc-500 select-none"
+            : "w-full cursor-not-allowed rounded-xl border border-zinc-200 bg-zinc-100 px-4 py-3 text-center text-sm font-medium text-zinc-400 select-none"
+        }
         title="Your plan's template limit has been reached. Contact your account manager to expand your entitlement."
       >
         License cap reached
@@ -353,6 +213,18 @@ function AcquireCTA({
   }
 
   if (ctaState === "premium-lock") {
+    if (isTheater) {
+      return (
+        <div
+          aria-disabled="true"
+          className="inline-flex min-w-[12rem] cursor-not-allowed items-center justify-center rounded-full border border-amber-400/20 bg-amber-500/10 px-8 py-3.5 text-sm font-medium text-amber-200 select-none"
+          title="Premium and Enterprise templates require license provisioning by your account manager."
+        >
+          Upgrade Required
+        </div>
+      );
+    }
+
     return (
       <div className="flex flex-col items-center gap-2">
         <div
@@ -374,7 +246,11 @@ function AcquireCTA({
       <button
         type="button"
         disabled
-        className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+        className={
+          isTheater
+            ? "inline-flex min-w-[12rem] items-center justify-center gap-2 rounded-full bg-white/90 px-8 py-3.5 text-sm font-semibold text-zinc-900 disabled:opacity-60"
+            : "inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+        }
       >
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
         Adding to library…
@@ -506,22 +382,64 @@ function AcquireCTA({
     <button
       type="button"
       onClick={() => void handleAcquire()}
-      className="w-full rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
+      className={
+        isTheater
+          ? "inline-flex min-w-[12rem] items-center justify-center rounded-full bg-white px-8 py-3.5 text-sm font-semibold text-zinc-900 shadow-lg transition-all hover:bg-zinc-100 hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
+          : isHero
+            ? "w-full rounded-xl border border-white/25 bg-white/10 px-6 py-3 text-sm font-semibold text-white backdrop-blur-sm transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 sm:w-auto"
+            : "w-full rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
+      }
     >
-      Add to Library — {tierLabel}
+      {isTheater ? "Use this template" : `Add to Library — ${tierLabel}`}
     </button>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Device mockup — shared portrait frame for demo iframe & screenshot fallback
+// Pitch section helper
 // ---------------------------------------------------------------------------
 
-const DEVICE_MOCKUP_CLASSES =
-  "relative h-[65vh] md:h-[70vh] 2xl:h-[75vh] max-h-[850px] aspect-[9/16] w-auto mx-auto bg-black rounded-[2.5rem] overflow-hidden shadow-2xl ring-8 ring-slate-800 shrink-0 flex-none";
+function PitchSection({
+  title,
+  children,
+  large = false,
+  tone = "light",
+}: {
+  title: string;
+  children: ReactNode;
+  large?: boolean;
+  tone?: "light" | "dark";
+}) {
+  return (
+    <section className="space-y-5 sm:space-y-6">
+      <h3
+        className={
+          large
+            ? tone === "dark"
+              ? "text-xl font-semibold tracking-tight text-zinc-100 sm:text-2xl"
+              : "text-xl font-semibold tracking-tight text-zinc-900 sm:text-2xl"
+            : tone === "dark"
+              ? "text-[11px] font-semibold uppercase tracking-widest text-zinc-400"
+              : "text-[11px] font-semibold uppercase tracking-widest text-zinc-400"
+        }
+      >
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
 
-function DeviceMockupFrame({ children }: { children: ReactNode }) {
-  return <div className={DEVICE_MOCKUP_CLASSES}>{children}</div>;
+function HeroBadge({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-xs font-medium text-white/90 backdrop-blur-sm">
+      {children}
+    </span>
+  );
 }
 
 function collectFallbackImages(template: EnrichedTemplate): string[] {
@@ -542,125 +460,517 @@ function collectFallbackImages(template: EnrichedTemplate): string[] {
 // StorefrontDetailsDialog
 // ---------------------------------------------------------------------------
 
+type EditDraft = {
+  title: string;
+  description: string;
+  tutorial: string;
+  badgeType: BadgeType | null;
+  tier: TemplateTier;
+  tagIds: string[];
+  thumbnailUrl: string;
+  previewUrls: string[];
+  controls: TemplateControlEntry[];
+};
+
+function editDraftFromTemplate(template: EnrichedTemplate): EditDraft {
+  return {
+    title: template.title?.trim() ?? "",
+    description: normalizeEditorContent(template.description?.trim() ?? ""),
+    tutorial: normalizeEditorContent(template.tutorial?.trim() ?? ""),
+    badgeType: (template.badge_type as BadgeType | null) ?? null,
+    tier: (template.tier ?? "free") as TemplateTier,
+    tagIds: [],
+    thumbnailUrl: template.thumbnail_url ?? "",
+    previewUrls: Array.isArray(template.preview_urls) ? template.preview_urls : [],
+    controls: template.controls ?? [],
+  };
+}
+
+function richFieldsEqual(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.trim() === b.trim()) return true;
+  return (
+    normalizeRichContentForCompare(a) === normalizeRichContentForCompare(b)
+  );
+}
+
+function editDraftsEqual(a: EditDraft, b: EditDraft): boolean {
+  return (
+    a.title === b.title &&
+    richFieldsEqual(a.description, b.description) &&
+    richFieldsEqual(a.tutorial, b.tutorial) &&
+    a.badgeType === b.badgeType &&
+    a.tier === b.tier &&
+    a.thumbnailUrl === b.thumbnailUrl &&
+    JSON.stringify(a.previewUrls) === JSON.stringify(b.previewUrls) &&
+    JSON.stringify([...a.tagIds].sort()) === JSON.stringify([...b.tagIds].sort()) &&
+    JSON.stringify(a.controls) === JSON.stringify(b.controls)
+  );
+}
+
 export function StorefrontDetailsDialog({
   template,
   atLicenseCap,
   onClose,
+  layout = "modal",
+  isAdminPreview = false,
+  isDraft = false,
+  editMode = false,
+  onEditModeChange,
+  onTemplateUpdated,
+  adminReturnUrl,
 }: {
   template: EnrichedTemplate;
   atLicenseCap: boolean;
   onClose: () => void;
+  layout?: "modal" | "page";
+  isAdminPreview?: boolean;
+  isDraft?: boolean;
+  editMode?: boolean;
+  onEditModeChange?: (edit: boolean) => void;
+  onTemplateUpdated?: (template: EnrichedTemplate) => void;
+  /** When set, cancel/save navigation returns to the admin panel. */
+  adminReturnUrl?: string;
 }) {
+  const router = useRouter();
   const titleId = useId();
   const manifest = parseManifest(template.manifest);
-  const [loadStartTime] = useState(() => Date.now());
-  const [loadTimeMs, setLoadTimeMs] = useState<number | null>(null);
+  const { isExpanded, expand, setIsExpanded } = useTheaterMode();
 
-  const displayName =
-    template.title?.trim() ||
-    manifest.displayName ||
-    slugToTitle(template.template_slug ?? "");
+  const [editDraft, setEditDraft] = useState<EditDraft>(() =>
+    editDraftFromTemplate(template),
+  );
+  const [savedSnapshot, setSavedSnapshot] = useState<EditDraft>(() =>
+    editDraftFromTemplate(template),
+  );
+  const [tagsDirty, setTagsDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loadingEditMeta, setLoadingEditMeta] = useState(() => editMode);
+  const [editSaveSuccess, setEditSaveSuccess] = useState(false);
+  const [metadataPanelOpen, setMetadataPanelOpen] = useState(false);
+  const [activeRichTextEditor, setActiveRichTextEditor] = useState<Editor | null>(
+    null,
+  );
+  const [activeRichTextField, setActiveRichTextField] = useState("Description");
+  const [editorRevision, setEditorRevision] = useState(0);
+  const descriptionEditorRef = useRef<Editor | null>(null);
+  const tutorialEditorRef = useRef<Editor | null>(null);
+
+  const bumpEditorRevision = useCallback(() => {
+    setEditorRevision((revision) => revision + 1);
+  }, []);
+
+  const readEditorHtml = useCallback((editor: Editor | null, fallback: string) => {
+    if (!editor) return fallback;
+    const html = editor.getHTML();
+    return isEmptyRichHtml(html) ? "" : html;
+  }, []);
+
+  const templateSlug = template.template_slug ?? "";
+
+  useEffect(() => {
+    if (!editMode) {
+      setActiveRichTextEditor(null);
+      descriptionEditorRef.current = null;
+      tutorialEditorRef.current = null;
+    }
+  }, [editMode]);
+
+  const bindEditorRevision = useCallback(
+    (editor: Editor) => {
+      const refresh = () => bumpEditorRevision();
+      editor.on("update", refresh);
+      editor.on("selectionUpdate", refresh);
+      return () => {
+        editor.off("update", refresh);
+        editor.off("selectionUpdate", refresh);
+      };
+    },
+    [bumpEditorRevision],
+  );
+
+  const descriptionEditorCleanupRef = useRef<(() => void) | null>(null);
+  const tutorialEditorCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      descriptionEditorCleanupRef.current?.();
+      tutorialEditorCleanupRef.current?.();
+    };
+  }, []);
+
+  const registerDescriptionEditor = useCallback(
+    (editor: Editor) => {
+      descriptionEditorCleanupRef.current?.();
+      descriptionEditorRef.current = editor;
+      descriptionEditorCleanupRef.current = bindEditorRevision(editor);
+      setActiveRichTextEditor((current: Editor | null) => current ?? editor);
+      setActiveRichTextField("Description");
+      bumpEditorRevision();
+    },
+    [bindEditorRevision, bumpEditorRevision],
+  );
+
+  const registerTutorialEditor = useCallback(
+    (editor: Editor) => {
+      tutorialEditorCleanupRef.current?.();
+      tutorialEditorRef.current = editor;
+      tutorialEditorCleanupRef.current = bindEditorRevision(editor);
+      bumpEditorRevision();
+    },
+    [bindEditorRevision, bumpEditorRevision],
+  );
+
+  const focusDescriptionEditor = useCallback(() => {
+    if (descriptionEditorRef.current) {
+      setActiveRichTextEditor(descriptionEditorRef.current);
+      setActiveRichTextField("Description");
+    }
+  }, []);
+
+  const focusTutorialEditor = useCallback(() => {
+    if (tutorialEditorRef.current) {
+      setActiveRichTextEditor(tutorialEditorRef.current);
+      setActiveRichTextField("Configurator tutorial");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!editMode || !templateSlug) return;
+
+    let cancelled = false;
+
+    void adminApiFetch<{
+      title: string;
+      description: string;
+      tutorial: string;
+      badgeType: BadgeType | null;
+      thumbnailUrl: string;
+      previewUrls: string[];
+      tagIds: string[];
+      controls: TemplateControlEntry[];
+    }>(`/api/templates/${encodeURIComponent(templateSlug)}/metadata`)
+      .then((result) => {
+        if (cancelled || !result.ok) return;
+        setEditDraft((prev) => ({
+          ...prev,
+          title: result.title || prev.title,
+          description: normalizeEditorContent(
+            result.description || prev.description,
+          ),
+          tutorial: normalizeEditorContent(result.tutorial || prev.tutorial),
+          badgeType: result.badgeType,
+          thumbnailUrl: result.thumbnailUrl || prev.thumbnailUrl,
+          previewUrls: result.previewUrls.length > 0 ? result.previewUrls : prev.previewUrls,
+          tagIds: result.tagIds,
+          controls: result.controls ?? prev.controls,
+        }));
+        setSavedSnapshot((prev) => ({
+          ...prev,
+          title: result.title || prev.title,
+          description: normalizeEditorContent(
+            result.description || prev.description,
+          ),
+          tutorial: normalizeEditorContent(result.tutorial || prev.tutorial),
+          badgeType: result.badgeType,
+          thumbnailUrl: result.thumbnailUrl || prev.thumbnailUrl,
+          previewUrls: result.previewUrls.length > 0 ? result.previewUrls : prev.previewUrls,
+          tagIds: result.tagIds,
+          controls: result.controls ?? prev.controls,
+        }));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingEditMeta(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editMode, templateSlug]);
+
+  const displayName = useMemo(() => {
+    if (editMode) {
+      return (
+        editDraft.title.trim() ||
+        manifest.displayName ||
+        slugToTitle(templateSlug)
+      );
+    }
+    return (
+      template.title?.trim() ||
+      manifest.displayName ||
+      slugToTitle(templateSlug)
+    );
+  }, [editDraft.title, editMode, manifest.displayName, template.title, templateSlug]);
   const featureModules: string[] = Array.isArray(manifest.supportsUI)
     ? manifest.supportsUI
     : [];
   const demoUrl = manifest.demo_url ?? null;
   const fallbackImages = collectFallbackImages(template);
+  const heroKeyArt = fallbackImages[0] ?? null;
+  const tutorial = editMode
+    ? editDraft.tutorial
+    : typeof template.tutorial === "string"
+      ? template.tutorial.trim()
+      : "";
+  const description = editMode
+    ? editDraft.description
+    : template.description?.trim() ?? "";
+  const tierLabel = getTierStyle(
+    editMode ? editDraft.tier : template.tier,
+  ).label;
 
-  const hasContent = demoUrl || template.description || featureModules.length > 0;
+  const isDirty = useMemo(() => {
+    if (!editMode) return false;
+    if (tagsDirty) return true;
 
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6"
-      role="presentation"
-      onClick={onClose}
-    >
-      {/* Backdrop */}
+    const liveDraft: EditDraft = {
+      ...editDraft,
+      description: readEditorHtml(
+        descriptionEditorRef.current,
+        editDraft.description,
+      ),
+      tutorial: readEditorHtml(tutorialEditorRef.current, editDraft.tutorial),
+    };
+
+    return !editDraftsEqual(liveDraft, savedSnapshot);
+  }, [
+    editDraft,
+    editMode,
+    editorRevision,
+    readEditorHtml,
+    savedSnapshot,
+    tagsDirty,
+  ]);
+  const showSaveSuccess = editSaveSuccess && !isDirty;
+
+  const handleCancelEdit = useCallback(() => {
+    setEditDraft(savedSnapshot);
+    setTagsDirty(false);
+    setEditSaveSuccess(false);
+    if (adminReturnUrl) {
+      router.push(adminReturnUrl);
+      return;
+    }
+    onEditModeChange?.(false);
+  }, [adminReturnUrl, onEditModeChange, router, savedSnapshot]);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!templateSlug) return;
+
+    const draftToSave: EditDraft = {
+      ...editDraft,
+      description: readEditorHtml(
+        descriptionEditorRef.current,
+        editDraft.description,
+      ),
+      tutorial: readEditorHtml(tutorialEditorRef.current, editDraft.tutorial),
+      controls: sanitizeControlsForSave(editDraft.controls),
+    };
+
+    setSaving(true);
+    try {
+      const result = await adminApiFetch<{
+        title: string;
+        description: string;
+        badgeType: BadgeType | null;
+        tutorial: string;
+        thumbnailUrl: string;
+        previewUrls: string[];
+        tagIds: string[];
+        controls: TemplateControlEntry[];
+      }>(`/api/templates/${encodeURIComponent(templateSlug)}/metadata`, {
+        method: "PUT",
+        body: {
+          title: draftToSave.title,
+          description: draftToSave.description,
+          tutorial: draftToSave.tutorial,
+          badgeType: draftToSave.badgeType,
+          tier: draftToSave.tier,
+          thumbnailUrl: draftToSave.thumbnailUrl,
+          previewUrls: draftToSave.previewUrls,
+          tagIds: draftToSave.tagIds,
+          controls: draftToSave.controls,
+        },
+      });
+
+      if (!result.ok) {
+        toast.error("Save failed", { description: result.error });
+        return;
+      }
+
+      const nextTemplate: EnrichedTemplate = {
+        ...template,
+        title: draftToSave.title,
+        description: draftToSave.description,
+        tutorial: draftToSave.tutorial,
+        badge_type: draftToSave.badgeType,
+        tier: draftToSave.tier,
+        thumbnail_url: result.thumbnailUrl,
+        preview_urls: result.previewUrls,
+        controls: result.controls ?? draftToSave.controls,
+      };
+
+      setEditDraft(draftToSave);
+      const nextSnapshot = { ...draftToSave, tagIds: draftToSave.tagIds };
+      setSavedSnapshot(nextSnapshot);
+      setTagsDirty(false);
+      bumpEditorRevision();
+      onTemplateUpdated?.(nextTemplate);
+      setEditSaveSuccess(true);
+      router.refresh();
+      toast.success("Saved", {
+        description: "Changes applied. You can keep editing.",
+      });
+    } catch {
+      toast.error("Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    bumpEditorRevision,
+    editDraft,
+    onTemplateUpdated,
+    readEditorHtml,
+    router,
+    template,
+    templateSlug,
+  ]);
+
+  const hasPitchContent =
+    description ||
+    featureModules.length > 0 ||
+    tutorial.length > 0;
+
+  const demoIframe = demoUrl ? (
+    <iframe
+      src={demoUrl}
+      sandbox="allow-scripts allow-same-origin allow-forms"
+      title={`${displayName} live demo`}
+      loading="lazy"
+      className="absolute inset-0 h-full w-full border-0"
+    />
+  ) : null;
+
+  const demoTheaterFooter = (
+    <AcquireCTA
+      template={template}
+      atLicenseCap={atLicenseCap}
+      onClose={onClose}
+      tone="theater"
+    />
+  );
+
+  const demoControls = editMode
+    ? sanitizeControlsForSave(editDraft.controls)
+    : (template.controls ?? []);
+
+  const dismissTheater = useCallback(() => {
+    setIsExpanded(false);
+  }, [setIsExpanded]);
+
+  const handleShellClose = useCallback(
+    (event?: MouseEvent) => {
+      if (isExpanded) {
+        event?.stopPropagation();
+        event?.preventDefault();
+        dismissTheater();
+        return;
+      }
+      onClose();
+    },
+    [dismissTheater, isExpanded, onClose],
+  );
+
+  useEffect(() => {
+    if (!isExpanded) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      dismissTheater();
+    };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [dismissTheater, isExpanded]);
+
+  const shellContent = (
+    <>
+      {heroKeyArt ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={heroKeyArt}
+            alt=""
+            aria-hidden
+            className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover blur-3xl"
+          />
+        </>
+      ) : (
+        <div
+          className="pointer-events-none absolute inset-0 bg-zinc-950"
+          aria-hidden
+        />
+      )}
       <div
-        className="absolute inset-0 bg-zinc-950/65 backdrop-blur-md"
+        className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/75 via-black/80 to-black/85"
         aria-hidden
       />
 
-      {/* Dialog panel */}
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="relative flex h-[90vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-zinc-200/50 bg-white shadow-[0_48px_140px_-24px_rgba(0,0,0,0.55)]"
-        style={{ width: "min(90vw, 72rem)" }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Close button — top-right of the panel */}
+      {layout === "page" && !isExpanded ? (
+        <Link
+          href="/dashboard/store"
+          className="absolute left-4 top-4 z-20 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-md transition-colors hover:bg-white/20"
+        >
+          ← Store
+        </Link>
+      ) : null}
+
+      {isAdminPreview && isDraft ? (
+        <div
+          role="status"
+          className="absolute left-1/2 top-4 z-20 -translate-x-1/2 rounded-full border border-amber-400/30 bg-amber-500/20 px-4 py-1.5 text-xs font-medium text-amber-100 backdrop-blur-md"
+        >
+          Admin preview — not published
+        </div>
+      ) : null}
+
+      {onEditModeChange && !editMode ? (
         <button
           type="button"
-          onClick={onClose}
-          className="absolute right-4 top-4 z-10 rounded-full bg-zinc-100 p-1.5 text-zinc-500 transition-colors hover:bg-zinc-200 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400"
+          onClick={() => onEditModeChange(true)}
+          className="absolute right-16 top-4 z-20 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-md transition-colors hover:bg-white/20"
+        >
+          <Pencil className="h-3.5 w-3.5" aria-hidden />
+          Edit
+        </button>
+      ) : null}
+
+      {!isExpanded ? (
+        <button
+          type="button"
+          onClick={(event) => handleShellClose(event)}
+          className="absolute right-4 top-4 z-20 rounded-full bg-white/10 p-2 text-white backdrop-blur-md transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
           aria-label="Close dialog"
         >
           <X className="h-4 w-4" />
         </button>
+      ) : null}
 
-        {/* ── Left column: Media ── */}
-        <div className="col-span-12 md:col-span-8 flex min-w-0 flex-1 items-center justify-center w-full min-h-[500px] overflow-y-auto rounded-2xl bg-slate-50/50">
-          {demoUrl ? (
-            <div className="flex flex-col items-center px-4 py-6">
-              <DeviceMockupFrame>
-                <iframe
-                  src={demoUrl}
-                  sandbox="allow-scripts allow-same-origin allow-forms"
-                  title={`${displayName} live demo`}
-                  loading="lazy"
-                  onLoad={() => setLoadTimeMs(Date.now() - loadStartTime)}
-                  className="absolute inset-0 h-full w-full border-0"
-                />
-              </DeviceMockupFrame>
-              <p className="mt-6 text-center text-xs tracking-wide text-zinc-400">
-                Interactive demo — scroll or tap to play
-              </p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center px-4 py-6">
-              <DeviceMockupFrame>
-                {fallbackImages.length > 0 ? (
-                  <div className="absolute inset-0 grid grid-cols-2 gap-0.5 overflow-y-auto bg-zinc-950 p-0.5">
-                    {fallbackImages.map((url, index) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        key={`${url}-${index}`}
-                        src={url}
-                        alt={`${displayName} preview ${index + 1}`}
-                        className="aspect-[9/16] w-full object-cover"
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-zinc-900 px-6 text-center">
-                    <Gamepad2 className="h-10 w-10 text-zinc-600" aria-hidden />
-                    <p className="text-sm text-zinc-500">No playable demo available</p>
-                    <span className="font-mono text-xs text-zinc-600">
-                      {template.template_slug}
-                    </span>
-                  </div>
-                )}
-              </DeviceMockupFrame>
-              {fallbackImages.length > 0 ? (
-                <p className="mt-6 text-center text-xs tracking-wide text-zinc-400">
-                  Preview screenshots
-                </p>
-              ) : null}
-            </div>
-          )}
-        </div>
-
-        {/* ── Right column: Meta + sticky CTA (fixed width) ── */}
-        <div className="flex w-80 shrink-0 flex-col overflow-hidden border-l border-zinc-100 bg-white">
-
-          {/* Scrollable meta content */}
-          <div className="min-h-0 flex-1 overflow-y-auto p-6 pt-14">
-
-            {/* Logo + title */}
-            <div className="flex items-start gap-3">
+      <div className="relative z-10 min-h-0 flex-1 overflow-y-auto">
+          {/* ── Hero banner ── */}
+          <section
+            className={cn(
+              "relative shrink-0",
+              editMode ? "overflow-visible" : "overflow-hidden",
+            )}
+          >
+            <div className="relative mx-auto flex w-full max-w-6xl flex-col items-center px-5 pb-5 pt-20 text-center sm:px-10 sm:pb-6 sm:pt-24">
               {manifest.logoUrl ? (
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-zinc-100 bg-zinc-50 p-1.5 shadow-sm">
+                <div className="mb-5 flex h-14 w-14 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-1.5 backdrop-blur-sm">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={manifest.logoUrl}
@@ -669,103 +979,371 @@ export function StorefrontDetailsDialog({
                   />
                 </div>
               ) : null}
-              <div className="min-w-0">
-                <h2
-                  id={titleId}
-                  className="text-base font-bold leading-snug text-zinc-900"
-                >
-                  {displayName}
-                </h2>
-                {template.published_at ? (
-                  <p className="mt-0.5 text-xs text-zinc-400">
-                    Updated {formatPublishedAt(template.published_at)}
-                  </p>
-                ) : null}
-              </div>
-            </div>
 
-            {/* Status + tier badges */}
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              {template.isLicensed ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  In Library
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-500">
-                  <Lock className="h-3 w-3" aria-hidden />
-                  Not owned
-                </span>
-              )}
-              <TierBadge tier={template.tier} />
-              <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 font-mono text-xs font-medium text-zinc-400">
-                v{template.version}
-              </span>
-            </div>
+              <h2
+                id={titleId}
+                className="max-w-3xl px-2 text-3xl font-bold tracking-tight text-white sm:text-4xl lg:text-5xl"
+              >
+                {editMode ? (
+                  <InlineTitleEditor
+                    value={editDraft.title}
+                    onChange={(title) =>
+                      setEditDraft((prev) => ({ ...prev, title }))
+                    }
+                    placeholder="Storefront title"
+                    className="text-center text-2xl font-bold text-white sm:text-3xl lg:text-4xl"
+                  />
+                ) : (
+                  displayName
+                )}
+              </h2>
 
-            {/* Performance stats */}
-            {demoUrl ? (
-              <div className="mt-3">
-                <DemoPerformanceBadge
-                  loadTimeMs={loadTimeMs}
-                  demoSizeKb={
-                    typeof manifest.demo_size_kb === "number"
-                      ? manifest.demo_size_kb
-                      : undefined
-                  }
+              {template.published_at ? (
+                <p className="mt-3 text-sm text-zinc-400">
+                  Updated {formatPublishedAt(template.published_at)}
+                </p>
+              ) : null}
+
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                {template.isLicensed ? (
+                  <HeroBadge>
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    In Library
+                  </HeroBadge>
+                ) : (
+                  <HeroBadge>
+                    <Lock className="h-3 w-3 shrink-0 text-white/70" aria-hidden />
+                    Not owned
+                  </HeroBadge>
+                )}
+                <TierBadge
+                  tier={editMode ? editDraft.tier : template.tier}
+                  className="border-white/15 bg-white/10 text-white/90"
+                />
+                <BadgePill
+                  badgeType={editMode ? editDraft.badgeType : template.badge_type}
+                  className="border-white/15 bg-white/10 text-white/90"
                 />
               </div>
-            ) : null}
 
-            {/* Features */}
-            {featureModules.length > 0 ? (
-              <div className="mt-7">
-                <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
-                  Features
-                </h3>
-                <div className="flex flex-wrap gap-2">
-                  {featureModules.map((mod) => (
-                    <FeaturePill
-                      key={mod}
-                      module={mod}
-                      isLicensed={template.isLicensed}
-                    />
-                  ))}
+              <div className="mt-8 flex w-full max-w-lg flex-col gap-3 sm:flex-row sm:justify-center">
+                {demoUrl ? (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      expand();
+                    }}
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-6 py-3.5 text-sm font-semibold text-zinc-900 transition-colors hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 sm:w-auto"
+                  >
+                    <Play className="h-4 w-4 fill-current" aria-hidden />
+                    Play Interactive Demo
+                  </button>
+                ) : null}
+                <AcquireCTA
+                  template={template}
+                  atLicenseCap={atLicenseCap}
+                  onClose={onClose}
+                  tone="hero"
+                />
+              </div>
+
+              {demoUrl ? (
+                <div className="mt-8 w-full">
+                  <StorefrontDemoPreview
+                    isExpanded={isExpanded}
+                    onExpandChange={setIsExpanded}
+                    posterUrl={heroKeyArt}
+                    posterAlt={`${displayName} preview`}
+                    showExpandControl={false}
+                    posterLayout="landscape"
+                    backLabel="Back to template"
+                    theaterFooter={demoTheaterFooter}
+                    controls={demoControls}
+                  >
+                    {demoIframe}
+                  </StorefrontDemoPreview>
                 </div>
-              </div>
-            ) : null}
+              ) : heroKeyArt ? (
+                <div className="relative mt-8 inline-block max-w-full overflow-hidden rounded-2xl ring-1 ring-white/20">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={heroKeyArt}
+                    alt={`${displayName} preview`}
+                    className="block max-h-[min(40vh,400px)] w-auto max-w-full"
+                  />
+                </div>
+              ) : (
+                <div className="mt-8 flex aspect-video w-full max-h-[280px] flex-col items-center justify-center gap-3 rounded-2xl bg-zinc-900/80 ring-1 ring-white/10">
+                  <Gamepad2 className="h-10 w-10 text-zinc-600" aria-hidden />
+                  <p className="text-sm text-zinc-500">No preview available</p>
+                </div>
+              )}
+            </div>
+          </section>
 
-            {/* Description */}
-            {template.description ? (
-              <div className="mt-7">
-                <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
-                  About
-                </h3>
-                <p className="text-sm leading-relaxed text-zinc-600">
-                  {template.description}
-                </p>
+          {/* ── Template description (on hero background) ── */}
+          {(description || tutorial || editMode) ? (
+            <section className="w-full shrink-0 pb-10 pt-6 sm:pb-14 sm:pt-8">
+              <div className="mx-auto max-w-4xl px-6 sm:px-10">
+                <PitchSection title="Template Details" large tone="dark">
+                  {editMode ? (
+                    loadingEditMeta ? (
+                      <div className="flex items-center justify-center gap-2 py-12">
+                        <Loader2 className="h-4 w-4 animate-spin text-zinc-400" />
+                        <span className="text-sm text-zinc-400">Loading…</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-10 overflow-visible sm:space-y-12">
+                        <InlineRichTextEditor
+                          value={editDraft.description}
+                          onChange={(value) =>
+                            setEditDraft((prev) => ({ ...prev, description: value }))
+                          }
+                          variant="dark"
+                          placeholder="Describe the campaign integration…"
+                          editorKey={`desc-${templateSlug}`}
+                          onEditorReady={registerDescriptionEditor}
+                          onEditorFocus={focusDescriptionEditor}
+                        />
+                        <TemplateControlsEditor
+                          value={editDraft.controls}
+                          onChange={(controls) =>
+                            setEditDraft((prev) => ({ ...prev, controls }))
+                          }
+                          variant="dark"
+                        />
+                        {(editDraft.tutorial || editMode) ? (
+                          <div className="space-y-4 overflow-visible">
+                            <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
+                              Configurator tutorial
+                            </p>
+                            <InlineRichTextEditor
+                              value={editDraft.tutorial}
+                              onChange={(value) =>
+                                setEditDraft((prev) => ({ ...prev, tutorial: value }))
+                              }
+                              variant="dark"
+                              placeholder="Help text shown in the Configurator…"
+                              editorKey={`tut-${templateSlug}`}
+                              onEditorReady={registerTutorialEditor}
+                              onEditorFocus={focusTutorialEditor}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    )
+                  ) : (
+                    <div className="space-y-10 sm:space-y-12">
+                      {description ? (
+                        <RichHtmlContent source={description} variant="dark" />
+                      ) : null}
+                      {tutorial ? (
+                        <div className="space-y-4">
+                          <p className="text-[11px] font-semibold uppercase tracking-widest text-zinc-400">
+                            Configurator tutorial
+                          </p>
+                          <RichHtmlContent source={tutorial} variant="dark" />
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+                </PitchSection>
               </div>
-            ) : null}
+            </section>
+          ) : null}
 
-            {/* Empty content state */}
-            {!hasContent ? (
-              <div className="mt-6 rounded-xl border border-dashed border-zinc-200 px-4 py-8 text-center">
-                <p className="text-xs text-zinc-400">
-                  No additional details available.
-                </p>
+          {/* ── Pitch content ── */}
+          <section
+            className={cn(
+              "w-full bg-white pt-10 sm:pt-12",
+              editMode ? "pb-28 sm:pb-32" : "pb-24 sm:pb-28",
+            )}
+          >
+            <div className="mx-auto max-w-4xl space-y-16 px-6 sm:px-10">
+              {featureModules.length > 0 ? (
+                <PitchSection title="Marketing Features" large>
+                  <p className="text-base leading-relaxed text-zinc-500">
+                    Built-in UI modules ready to customize for your brand
+                    campaign — no engineering required.
+                  </p>
+                  <div className="flex flex-wrap gap-2 pt-2">
+                    {featureModules.map((mod) => (
+                      <FeaturePill
+                        key={mod}
+                        module={mod}
+                        isLicensed={template.isLicensed}
+                      />
+                    ))}
+                  </div>
+                </PitchSection>
+              ) : null}
+
+              <PitchSection title="Technical Specifications" large>
+                <dl className="divide-y divide-zinc-100 rounded-2xl border border-zinc-100 bg-zinc-50/50">
+                  <div className="flex items-center justify-between gap-4 px-5 py-4">
+                    <dt className="text-sm text-zinc-500">Template version</dt>
+                    <dd className="font-mono text-sm font-medium text-zinc-900">
+                      v{template.version}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4 px-5 py-4">
+                    <dt className="text-sm text-zinc-500">License tier</dt>
+                    <dd className="text-sm font-medium text-zinc-900">{tierLabel}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-4 px-5 py-4">
+                    <dt className="text-sm text-zinc-500">Template ID</dt>
+                    <dd className="font-mono text-xs text-zinc-600">
+                      {template.template_slug}
+                    </dd>
+                  </div>
+                  {typeof manifest.demo_size_kb === "number" ? (
+                    <div className="flex items-center justify-between gap-4 px-5 py-4">
+                      <dt className="text-sm text-zinc-500">Demo bundle size</dt>
+                      <dd className="text-sm font-medium text-zinc-900">
+                        {(manifest.demo_size_kb / 1024).toFixed(2)} MB
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </PitchSection>
+
+              {!hasPitchContent && !demoUrl ? (
+                <div className="rounded-xl border border-dashed border-zinc-200 px-4 py-10 text-center">
+                  <p className="text-sm text-zinc-400">
+                    No additional details available for this template.
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="border-t border-zinc-100 pt-10">
+                <AcquireCTA
+                  template={template}
+                  atLicenseCap={atLicenseCap}
+                  onClose={onClose}
+                />
               </div>
-            ) : null}
-          </div>
-
-          {/* Sticky CTA footer */}
-          <div className="shrink-0 border-t border-zinc-100 bg-zinc-50/60 px-6 py-5">
-            <AcquireCTA
-              template={template}
-              atLicenseCap={atLicenseCap}
-              onClose={onClose}
-            />
-          </div>
+            </div>
+          </section>
         </div>
+
+      {editMode ? (
+        <>
+          <StorefrontRichTextToolbarDock
+            editor={activeRichTextEditor}
+            fieldLabel={activeRichTextField}
+            visible={editMode && !loadingEditMeta}
+          />
+
+          <StorefrontEditMetadataPanel
+            open={metadataPanelOpen}
+            onClose={() => setMetadataPanelOpen(false)}
+            templateSlug={templateSlug}
+            tier={editDraft.tier}
+            badgeType={editDraft.badgeType}
+            onTierChange={(tier) =>
+              setEditDraft((prev) => ({ ...prev, tier }))
+            }
+            onBadgeTypeChange={(badgeType) =>
+              setEditDraft((prev) => ({ ...prev, badgeType }))
+            }
+            onTagsDirtyChange={setTagsDirty}
+            onTagIdsChange={(tagIds) =>
+              setEditDraft((prev) => ({ ...prev, tagIds }))
+            }
+          />
+
+          <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full border border-zinc-800 bg-zinc-900 px-4 py-3 shadow-2xl sm:gap-4 sm:px-6">
+          <button
+            type="button"
+            onClick={handleCancelEdit}
+            disabled={saving}
+            className="rounded-full px-4 py-1.5 text-sm font-medium text-zinc-300 transition-colors hover:text-white disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => setMetadataPanelOpen((open) => !open)}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
+              metadataPanelOpen
+                ? "bg-white/15 text-white"
+                : "text-zinc-400 hover:text-white"
+            }`}
+            aria-expanded={metadataPanelOpen}
+            aria-label="Template metadata"
+          >
+            <Settings2 className="h-4 w-4" aria-hidden />
+            <span className="hidden sm:inline">Metadata</span>
+          </button>
+          {adminReturnUrl ? (
+            <Link
+              href={adminReturnUrl}
+              className="hidden rounded-full px-4 py-1.5 text-sm font-medium text-zinc-400 transition-colors hover:text-white sm:inline"
+            >
+              Back to admin
+            </Link>
+          ) : null}
+          {showSaveSuccess ? (
+            <span
+              className="hidden text-xs font-medium text-emerald-400 sm:inline"
+              role="status"
+            >
+              Saved
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => void handleSaveEdit()}
+            disabled={saving || !isDirty}
+            className="inline-flex min-w-[7rem] items-center justify-center gap-2 rounded-full bg-white px-5 py-1.5 text-sm font-semibold text-zinc-900 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                Saving...
+              </>
+            ) : (
+              "Save"
+            )}
+          </button>
+        </div>
+        </>
+      ) : null}
+    </>
+  );
+
+  if (layout === "page") {
+    return (
+      <div
+        role="main"
+        aria-labelledby={titleId}
+        className="relative isolate flex min-h-dvh w-full flex-col overflow-hidden bg-zinc-950"
+      >
+        {shellContent}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4"
+      role="presentation"
+      onClick={() => handleShellClose()}
+    >
+      <div
+        className="absolute inset-0 bg-zinc-950/70 backdrop-blur-md"
+        aria-hidden
+      />
+
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="relative isolate flex h-full w-full max-h-dvh flex-col overflow-hidden shadow-[0_48px_140px_-24px_rgba(0,0,0,0.55)] sm:h-[92vh] sm:w-[94vw] sm:max-w-7xl sm:rounded-2xl sm:border sm:border-white/10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {shellContent}
       </div>
     </div>
   );

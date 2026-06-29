@@ -44,6 +44,41 @@ export function getBadgeStyle(badgeType: BadgeType | string | null | undefined):
 }
 
 // ---------------------------------------------------------------------------
+// Demo control hints (storefront theater view)
+// ---------------------------------------------------------------------------
+
+export const TemplateControlEntrySchema = z.object({
+  key: z.string().min(1).max(80),
+  action: z.string().min(1).max(120),
+});
+
+export type TemplateControlEntry = z.infer<typeof TemplateControlEntrySchema>;
+
+export const TemplateControlsSchema = z
+  .array(TemplateControlEntrySchema)
+  .max(12)
+  .default([]);
+
+export type TemplateControls = z.infer<typeof TemplateControlsSchema>;
+
+export const TEMPLATE_CONTROL_PRESETS = {
+  wasd: [
+    { key: "W", action: "Up" },
+    { key: "A", action: "Left" },
+    { key: "S", action: "Down" },
+    { key: "D", action: "Right" },
+  ],
+  arrowsSpace: [
+    { key: "↑", action: "Up" },
+    { key: "↓", action: "Down" },
+    { key: "←", action: "Left" },
+    { key: "→", action: "Right" },
+    { key: "Space", action: "Jump / action" },
+  ],
+  mouseTouch: [{ key: "Tap / Click", action: "Interact" }],
+} as const satisfies Record<string, TemplateControlEntry[]>;
+
+// ---------------------------------------------------------------------------
 // Metadata domain schemas
 // ---------------------------------------------------------------------------
 
@@ -57,18 +92,25 @@ const optionalUrlOrEmpty = z
 export const TemplateMetadataSchema = z.object({
   templateSlug: z.string().min(1).max(100),
   title: z.string().max(200).default(""),
-  description: z.string().max(5000).default(""),
+  /** Rich HTML description for the Storefront detail view (legacy Markdown supported at render time). */
+  description: z.string().max(25000).default(""),
   badgeType: BadgeTypeSchema.nullable().default(null),
+  /** Rich HTML help tutorial for the Configurator (legacy Markdown supported at render time). */
   tutorial: z.string().max(50000).default(""),
   thumbnailUrl: optionalUrlOrEmpty.default(""),
   previewUrls: z.array(z.string().url()).default([]),
   tagIds: z.array(z.string().uuid()).default([]),
+  /** Key-action hints shown in the storefront demo theater controls popover. */
+  controls: TemplateControlsSchema.optional().default([]),
 });
 
 export type TemplateMetadata = z.infer<typeof TemplateMetadataSchema>;
 
 export const UpdateTemplateMetadataInputSchema = TemplateMetadataSchema.omit({
   templateSlug: true,
+}).extend({
+  /** Optional license tier update on the latest templates registry row. */
+  tier: z.enum(["free", "premium", "enterprise"]).optional(),
 });
 
 export type UpdateTemplateMetadataInput = z.infer<
@@ -87,6 +129,7 @@ export const TemplateMetadataRowSchema = z.object({
   tutorial: z.string(),
   thumbnail_url: z.string(),
   preview_urls: z.array(z.string()),
+  controls: TemplateControlsSchema.default([]),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -103,6 +146,7 @@ export function templateMetadataFromRow(row: TemplateMetadataRow): TemplateMetad
     thumbnailUrl: row.thumbnail_url,
     previewUrls: row.preview_urls,
     tagIds: [],
+    controls: row.controls ?? [],
   };
 }
 
@@ -112,4 +156,9 @@ export function parseUpdateTemplateMetadataInput(input: unknown): UpdateTemplate
 
 export function parseTemplateMetadataRow(input: unknown): TemplateMetadataRow {
   return TemplateMetadataRowSchema.parse(input);
+}
+
+export function parseTemplateControls(input: unknown): TemplateControlEntry[] {
+  const result = TemplateControlsSchema.safeParse(input);
+  return result.success ? result.data : [];
 }

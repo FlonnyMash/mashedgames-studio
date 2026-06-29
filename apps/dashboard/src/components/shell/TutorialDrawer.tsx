@@ -1,147 +1,8 @@
 "use client";
 
-import type { TemplateMeta } from "@/lib/template-meta-io";
+import { RichHtmlContent } from "@/components/ui/RichHtmlContent";
 import { BookOpen, Loader2, X } from "lucide-react";
 import { useEffect, useId, useState } from "react";
-
-// ---------------------------------------------------------------------------
-// Minimal Markdown renderer
-// Renders headings, bold, italic, inline-code, code blocks, ordered/unordered
-// lists, and paragraph breaks without a heavy dependency.
-// ---------------------------------------------------------------------------
-
-function renderMarkdown(md: string): string {
-  if (!md.trim()) return "";
-
-  const lines = md.split("\n");
-  const out: string[] = [];
-  let inCodeBlock = false;
-  let codeLines: string[] = [];
-  let inList = false;
-  let listOrdered = false;
-
-  const flushList = () => {
-    if (!inList) return;
-    out.push(listOrdered ? "</ol>" : "</ul>");
-    inList = false;
-  };
-
-  const escape = (s: string) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-  const inlineFormat = (s: string): string => {
-    let r = escape(s);
-    // Bold
-    r = r.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-    r = r.replace(/__(.+?)__/g, "<strong>$1</strong>");
-    // Italic
-    r = r.replace(/\*(.+?)\*/g, "<em>$1</em>");
-    r = r.replace(/_(.+?)_/g, "<em>$1</em>");
-    // Inline code
-    r = r.replace(/`(.+?)`/g, '<code class="rounded bg-zinc-100 px-1 font-mono text-xs text-zinc-700">$1</code>');
-    return r;
-  };
-
-  for (const raw of lines) {
-    const line = raw;
-
-    if (line.startsWith("```")) {
-      if (inCodeBlock) {
-        out.push(
-          `<pre class="my-2 overflow-x-auto rounded-lg bg-zinc-900 px-4 py-3 font-mono text-xs leading-relaxed text-zinc-100">${escape(codeLines.join("\n"))}</pre>`,
-        );
-        codeLines = [];
-        inCodeBlock = false;
-      } else {
-        flushList();
-        inCodeBlock = true;
-      }
-      continue;
-    }
-
-    if (inCodeBlock) {
-      codeLines.push(line);
-      continue;
-    }
-
-    // Blank line
-    if (!line.trim()) {
-      flushList();
-      out.push('<div class="my-2" />');
-      continue;
-    }
-
-    // Headings
-    const h3 = /^###\s+(.+)/.exec(line);
-    if (h3) {
-      flushList();
-      out.push(`<h3 class="mt-4 mb-1 text-sm font-semibold text-zinc-900">${inlineFormat(h3[1])}</h3>`);
-      continue;
-    }
-    const h2 = /^##\s+(.+)/.exec(line);
-    if (h2) {
-      flushList();
-      out.push(`<h2 class="mt-5 mb-1 text-base font-semibold text-zinc-900">${inlineFormat(h2[1])}</h2>`);
-      continue;
-    }
-    const h1 = /^#\s+(.+)/.exec(line);
-    if (h1) {
-      flushList();
-      out.push(`<h1 class="mt-6 mb-2 text-lg font-bold text-zinc-900">${inlineFormat(h1[1])}</h1>`);
-      continue;
-    }
-
-    // Horizontal rule
-    if (/^---+$/.test(line.trim())) {
-      flushList();
-      out.push('<hr class="my-4 border-zinc-200" />');
-      continue;
-    }
-
-    // Unordered list
-    const ul = /^[-*]\s+(.+)/.exec(line);
-    if (ul) {
-      if (!inList || listOrdered) {
-        if (inList) flushList();
-        out.push('<ul class="my-2 ml-4 list-disc space-y-1 text-sm text-zinc-700">');
-        inList = true;
-        listOrdered = false;
-      }
-      out.push(`<li>${inlineFormat(ul[1])}</li>`);
-      continue;
-    }
-
-    // Ordered list
-    const ol = /^\d+\.\s+(.+)/.exec(line);
-    if (ol) {
-      if (!inList || !listOrdered) {
-        if (inList) flushList();
-        out.push('<ol class="my-2 ml-4 list-decimal space-y-1 text-sm text-zinc-700">');
-        inList = true;
-        listOrdered = true;
-      }
-      out.push(`<li>${inlineFormat(ol[1])}</li>`);
-      continue;
-    }
-
-    // Paragraph
-    flushList();
-    out.push(`<p class="text-sm leading-relaxed text-zinc-700">${inlineFormat(line)}</p>`);
-  }
-
-  flushList();
-  if (inCodeBlock && codeLines.length > 0) {
-    out.push(
-      `<pre class="my-2 overflow-x-auto rounded-lg bg-zinc-900 px-4 py-3 font-mono text-xs leading-relaxed text-zinc-100">${escape(codeLines.join("\n"))}</pre>`,
-    );
-  }
-
-  return out.join("\n");
-}
-
-// ---------------------------------------------------------------------------
-// TutorialDrawer
-// ---------------------------------------------------------------------------
 
 export function TutorialDrawer({
   templateId,
@@ -270,11 +131,7 @@ export function TutorialDrawer({
               </p>
             </div>
           ) : (
-            <div
-              className="prose-sm max-w-none"
-              // eslint-disable-next-line react/no-danger
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(tutorial) }}
-            />
+            <RichHtmlContent source={tutorial} variant="light" className="prose-sm" />
           )}
         </div>
       </div>

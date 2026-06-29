@@ -1,6 +1,7 @@
 "use client";
 
 import { TemplateDetailsDialog } from "@/components/studio/TemplateDetailsDialog";
+import { richTextToPlainText } from "@/lib/rich-html-content";
 import type { TemplateOverview } from "@/lib/template-overview-types";
 import { ImageIcon, MoreVertical } from "lucide-react";
 import Link from "next/link";
@@ -72,7 +73,7 @@ export function TemplateListRow({
               <p className="text-xs text-zinc-500">{template.id}</p>
               {template.description ? (
                 <p className="mt-0.5 truncate text-xs text-zinc-400">
-                  {template.description}
+                  {richTextToPlainText(template.description, 120)}
                 </p>
               ) : null}
             </div>

@@ -19,6 +19,9 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { useGameLibraryStore } from "@/store/useGameLibraryStore";
 import { useLicenseStore } from "@/store/useLicenseStore";
 import { usePlatformStore } from "@/store/usePlatformStore";
+import { fetchStoreTemplateDetail } from "@/lib/storefront-template-client";
+import { buildStorefrontEditorHref } from "@/lib/storefront-editor-routes";
+import { richTextToPlainText } from "@/lib/rich-html-content";
 import { StorefrontDetailsDialog } from "./StorefrontDetailsDialog";
 import { StorefrontCatalogActionBar } from "./StorefrontCatalogActionBar";
 import { StorefrontContextPanel } from "./StorefrontContextPanel";
@@ -99,7 +102,9 @@ function TemplateCard({
     template.title?.trim() ||
     manifest.displayName ||
     slugToTitle(template.template_slug ?? "");
-  const description = template.description || null;
+  const descriptionExcerpt = template.description
+    ? richTextToPlainText(template.description, 160)
+    : null;
   const imageUrl = template.thumbnail_url || null;
   const tier = (template.tier ?? "free") as TemplateTier;
   const [detailOpen, setDetailOpen] = useState(false);
@@ -166,9 +171,9 @@ function TemplateCard({
             </div>
           </div>
 
-          {description ? (
+          {descriptionExcerpt ? (
             <p className="line-clamp-2 text-xs leading-relaxed text-zinc-500">
-              {description}
+              {descriptionExcerpt}
             </p>
           ) : (
             <p className="text-xs text-zinc-400">v{template.version}</p>
@@ -367,6 +372,7 @@ export function TemplateStorefront({
   );
 
   const userId = useAuthStore((s) => s.userId);
+  const userRole = useAuthStore((s) => s.role);
   // Guard against the brief window where AuthGuard is still resolving the
   // initial session.  Without this, `userId` is null → we'd show "Sign in"
   // before auth has finished, causing a hydration flash.
@@ -386,6 +392,7 @@ export function TemplateStorefront({
   const [activeTab, setActiveTab] = useState<StorefrontTab>("store");
   const [tagFilterInvalid, setTagFilterInvalid] = useState(false);
   const [deepLinkTemplate, setDeepLinkTemplate] = useState<EnrichedTemplate | null>(null);
+  const [deepLinkAdminPreview, setDeepLinkAdminPreview] = useState(false);
   const [searchInput, setSearchInput] = useState(initialSearch);
   const [sortBy, setSortBy] = useState<StorefrontSortOption>(initialSort);
   const debouncedSearch = useDebouncedValue(searchInput, 400);
@@ -502,31 +509,62 @@ export function TemplateStorefront({
   }, [activeTagSlugKey, devStorePreview, userId]);
 
   useEffect(() => {
-    if (!templateParam || templates.length === 0) {
+    if (!templateParam) {
       setDeepLinkTemplate(null);
+      setDeepLinkAdminPreview(false);
       return;
     }
 
     const match = templates.find(
       (t) => t.id === templateParam || t.template_slug === templateParam,
     );
-    if (!match) {
-      setDeepLinkTemplate(null);
+
+    if (match) {
+      setDeepLinkTemplate({
+        ...match,
+        isLicensed:
+          match.isLicensed ||
+          licensedTemplateIds.has(match.id) ||
+          claimedTemplateIds.has(match.id),
+      });
+      setDeepLinkAdminPreview(false);
       return;
     }
 
-    setDeepLinkTemplate({
-      ...match,
-      isLicensed:
-        match.isLicensed ||
-        licensedTemplateIds.has(match.id) ||
-        claimedTemplateIds.has(match.id),
+    if (userRole !== "studio_admin") {
+      setDeepLinkTemplate(null);
+      setDeepLinkAdminPreview(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    void fetchStoreTemplateDetail(templateParam).then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setDeepLinkTemplate(null);
+        setDeepLinkAdminPreview(false);
+        return;
+      }
+      setDeepLinkTemplate({
+        ...result.template,
+        isLicensed:
+          result.template.isLicensed ||
+          licensedTemplateIds.has(result.template.id ?? "") ||
+          claimedTemplateIds.has(result.template.id ?? ""),
+      });
+      setDeepLinkAdminPreview(result.isAdminPreview);
     });
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     templateParam,
     templates,
     licensedTemplateIds,
     claimedTemplateIds,
+    userRole,
   ]);
 
   const closeDeepLinkDialog = () => {
@@ -804,6 +842,22 @@ export function TemplateStorefront({
         <StorefrontDetailsDialog
           template={deepLinkTemplate}
           atLicenseCap={atLicenseCap && !deepLinkTemplate.isLicensed}
+          isAdminPreview={deepLinkAdminPreview}
+          isDraft={deepLinkTemplate.isDraft === true}
+          onEditModeChange={
+            userRole === "studio_admin" && deepLinkTemplate.template_slug
+              ? (edit) => {
+                  if (edit) {
+                    router.push(
+                      buildStorefrontEditorHref(deepLinkTemplate.template_slug!, {
+                        fromAdmin: false,
+                      }),
+                    );
+                    closeDeepLinkDialog();
+                  }
+                }
+              : undefined
+          }
           onClose={closeDeepLinkDialog}
         />
       ) : null}

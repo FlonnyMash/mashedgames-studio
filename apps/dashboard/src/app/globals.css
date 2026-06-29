@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 @source "../../../../packages/studio-engine/src/**/*.{ts,tsx}";
 @source "../../../../packages/configurator-engine/src/**/*.{ts,tsx}";
@@ -28,7 +29,7 @@ body {
 html,
 body {
   scrollbar-width: thin;
-  scrollbar-color: #d4d4d8 transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -36,37 +37,28 @@ body {
   height: 6px;
 }
 
+*::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
 *::-webkit-scrollbar-track {
   background: transparent;
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: #d4d4d8;
-  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+  transition: background-color 150ms ease;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: #a1a1aa;
+  background-color: rgba(255, 255, 255, 0.35);
 }
 
 *::-webkit-scrollbar-corner {
   background: transparent;
-}
-
-@media (prefers-color-scheme: dark) {
-  *,
-  html,
-  body {
-    scrollbar-color: #3f3f46 transparent;
-  }
-
-  *::-webkit-scrollbar-thumb {
-    background-color: #3f3f46;
-  }
-
-  *::-webkit-scrollbar-thumb:hover {
-    background-color: #52525b;
-  }
 }
 
 @keyframes popover-in {
@@ -82,4 +74,107 @@ body {
 
 .animate-popover-in {
   animation: popover-in 140ms ease-out both;
+}
+
+/* TipTap inline editor placeholders */
+.ProseMirror p.is-editor-empty:first-child::before {
+  color: rgb(161 161 170);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.ProseMirror {
+  padding-top: 0.125rem;
+}
+
+.ProseMirror > :first-child {
+  margin-top: 0;
+}
+
+.prose-invert .ProseMirror p.is-editor-empty:first-child::before {
+  color: rgb(113 113 122);
+}
+
+/* Rich HTML viewer/editor — no prose typography; inline styles take precedence */
+.rich-html-content {
+  max-width: none;
+  word-wrap: break-word;
+}
+
+.rich-html-content :where(p + p) {
+  margin-top: 0.75em;
+}
+
+.rich-html-content :where(p:not([style*="line-height"])) {
+  line-height: 1.75;
+}
+
+.rich-html-content :where(h1, h2, h3) {
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+}
+
+.rich-html-content :where(h1:not([style*="font-size"])) {
+  font-size: 2.25rem;
+}
+
+.rich-html-content :where(h1:not([style*="line-height"])) {
+  line-height: 1.2;
+}
+
+.rich-html-content :where(h2:not([style*="font-size"])) {
+  font-size: 1.875rem;
+}
+
+.rich-html-content :where(h2:not([style*="line-height"])) {
+  line-height: 1.25;
+}
+
+.rich-html-content :where(h3:not([style*="font-size"])) {
+  font-size: 1.5rem;
+}
+
+.rich-html-content :where(h3:not([style*="line-height"])) {
+  line-height: 1.3;
+}
+
+.rich-html-content :where(ul) {
+  list-style: disc;
+  margin: 0.75em 0;
+  padding-left: 1.5em;
+}
+
+.rich-html-content :where(ol) {
+  list-style: decimal;
+  margin: 0.75em 0;
+  padding-left: 1.5em;
+}
+
+.rich-html-content :where(li + li) {
+  margin-top: 0.25em;
+}
+
+.rich-html-content :where(strong, b) {
+  font-weight: 700;
+}
+
+.rich-html-content :where(em, i) {
+  font-style: italic;
+}
+
+.rich-html-content :where(u) {
+  text-decoration: underline;
+}
+
+.rich-html-content :where(s, del, strike) {
+  text-decoration: line-through;
+}
+
+.rich-html-content :where(mark) {
+  border-radius: 0.125rem;
+  padding: 0 0.125rem;
 }

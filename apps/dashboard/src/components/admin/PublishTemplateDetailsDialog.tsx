@@ -8,8 +8,6 @@ import {
 import { TemplateTagSelector } from "@/components/admin/TemplateTagSelector";
 import { adminApiFetch } from "@/lib/admin-api-client";
 import {
-  BadgeRibbon,
-  TEMPLATE_CARD_BADGE_RIBBON,
   getBadgeStyle,
   type BadgeType,
 } from "@/lib/badge-config";
@@ -18,13 +16,20 @@ import { BADGE_TYPES } from "@mashedgames/shared";
 import {
   Check,
   CheckCircle2,
+  ExternalLink,
   Link2,
   Loader2,
   Rocket,
   UploadCloud,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useId, useState } from "react";
+import {
+  buildStorefrontEditorHref,
+  buildStorefrontPreviewHref,
+  type AdminTemplateTab,
+} from "@/lib/storefront-editor-routes";
 
 type Tier = "free" | "premium" | "enterprise";
 
@@ -47,103 +52,12 @@ const TABS: { id: DialogTab; label: string }[] = [
   { id: "preview", label: "Store Preview" },
 ];
 
-function StorePreviewCard({
-  displayName,
-  templateId,
-  description,
-  thumbnailUrl,
-  badgeType,
-}: {
-  displayName: string;
-  templateId: string;
-  description: string;
-  thumbnailUrl: string | undefined;
-  badgeType: BadgeType | null;
-}) {
-  return (
-    <div className="mx-auto w-full max-w-sm overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
-      <div className="relative h-40 w-full overflow-hidden bg-zinc-100">
-        {thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={thumbnailUrl}
-            alt={displayName}
-            className="h-full w-full object-cover"
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center">
-            <div className="flex flex-col items-center gap-2 text-zinc-300">
-              <svg
-                className="h-10 w-10"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                aria-hidden="true"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={1.5}
-                  d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z"
-                />
-              </svg>
-              <span className="text-xs font-mono">{templateId}</span>
-            </div>
-          </div>
-        )}
-
-        <BadgeRibbon
-          badgeType={badgeType}
-          className={TEMPLATE_CARD_BADGE_RIBBON}
-        />
-
-        <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-1.5 bg-zinc-900/50 backdrop-blur-[2px]">
-          <svg
-            className="h-6 w-6 text-white"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
-            />
-          </svg>
-          <span className="text-[11px] font-semibold text-white">Not licensed</span>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-2 p-4">
-        <div className="flex items-start justify-between gap-2">
-          <h3 className="text-sm font-semibold leading-tight text-zinc-900">
-            {displayName}
-          </h3>
-        </div>
-
-        {description.trim() ? (
-          <p className="line-clamp-2 text-xs leading-relaxed text-zinc-500">
-            {description}
-          </p>
-        ) : (
-          <p className="text-xs text-zinc-400">No description yet</p>
-        )}
-
-        <div className="mt-2 w-full rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-2 text-center text-xs font-medium text-zinc-600">
-          View details →
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function PublishTemplateDetailsDialog({
   templateId,
   displayName,
   open,
   onClose,
+  initialTab = "settings",
   selectedTier,
   onTierChange,
   demoUrl,
@@ -169,9 +83,10 @@ export function PublishTemplateDetailsDialog({
   publishedVersion: PublishedVersion | null;
   onPublish: () => void;
   onDeployDemo: () => void;
+  initialTab?: AdminTemplateTab;
 }) {
   const titleId = useId();
-  const [activeTab, setActiveTab] = useState<DialogTab>("settings");
+  const [activeTab, setActiveTab] = useState<DialogTab>(initialTab);
 
   const [loadingMeta, setLoadingMeta] = useState(false);
   const [title, setTitle] = useState(displayName);
@@ -265,10 +180,10 @@ export function PublishTemplateDetailsDialog({
     if (open) {
       setSaveError(null);
       setIsDirty(false);
-      setActiveTab("settings");
+      setActiveTab(initialTab);
       void loadMeta();
     }
-  }, [open, loadMeta]);
+  }, [open, loadMeta, initialTab]);
 
   useEffect(() => {
     if (!open) return;
@@ -625,19 +540,40 @@ export function PublishTemplateDetailsDialog({
           ) : null}
 
           {activeTab === "preview" ? (
-            <div className="space-y-4">
-              <p className="text-xs text-zinc-500">
-                Preview of how this template appears as a card in the client
-                storefront. Updates as you edit Content &amp; Media.
-              </p>
-              <div className="rounded-xl border border-dashed border-zinc-200 bg-zinc-50/80 p-6">
-                <StorePreviewCard
-                  displayName={title.trim() || displayName}
-                  templateId={templateId}
-                  description={description}
-                  thumbnailUrl={thumbnailUrl}
-                  badgeType={badgeType}
-                />
+            <div className="space-y-5">
+              <div className="rounded-xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-5">
+                <p className="text-sm font-medium text-zinc-900">
+                  Live Storefront Editor
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+                  Edit the real storefront detail page — what you change here is
+                  exactly what clients will see after publish.
+                </p>
+                <Link
+                  href={buildStorefrontEditorHref(templateId, { fromAdmin: true })}
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-900 px-5 py-3.5 text-sm font-semibold text-white shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)] transition-colors hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
+                >
+                  <ExternalLink className="h-4 w-4" aria-hidden />
+                  Edit live in store
+                </Link>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+                  Live preview
+                </p>
+                <div className="overflow-hidden rounded-xl border border-zinc-200 bg-zinc-950 shadow-inner">
+                  <iframe
+                    title={`Storefront preview for ${templateId}`}
+                    src={buildStorefrontPreviewHref(templateId, { fromAdmin: true })}
+                    className="h-[min(70vh,720px)] w-full border-0"
+                    loading="lazy"
+                  />
+                </div>
+                <p className="text-[11px] text-zinc-400">
+                  Read-only embed of the storefront detail page. Use the button
+                  above to open the visual editor.
+                </p>
               </div>
             </div>
           ) : null}

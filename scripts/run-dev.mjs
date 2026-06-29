@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { ensureDevPortReady } from "./ensure-dev-port-ready.mjs";
 
 function run(command, args, env) {
   const result = spawnSync(command, args, {
@@ -38,6 +39,16 @@ if (packageBootstrapExitCode !== 0) {
   process.exit(packageBootstrapExitCode);
 }
 
+try {
+  await ensureDevPortReady();
+} catch (error) {
+  console.error(
+    "[dev-orchestrator] Failed to prepare dashboard port:",
+    error instanceof Error ? error.message : String(error),
+  );
+  process.exit(1);
+}
+
 function spawnPhase(scriptName) {
   return spawn("pnpm", ["--config.verifyDepsBeforeRun=false", "run", scriptName], {
     stdio: "inherit",
@@ -49,26 +60,21 @@ function spawnPhase(scriptName) {
 // Phase 1 watchers stay active while Phase 2 apps run.
 const phase1 = spawnPhase("dev:phase1");
 const phase2 = spawnPhase("dev:phase2");
-// Phase 3 waits on dashboard readiness before launching desktop.
-const phase3 = spawnPhase("dev:phase3");
 
-const children = [phase1, phase2, phase3];
+// Give dashboard a short head start before phase 3 begins health polling.
+const phase3StartDelayMs = Number(process.env.MASHEDGAMES_DEV_PHASE3_DELAY_MS ?? 3_000);
+let phase3 = null;
+
+const phase3Timer = setTimeout(() => {
+  phase3 = spawnPhase("dev:phase3");
+  children.push(phase3);
+  bindChildExit(phase3);
+}, phase3StartDelayMs);
+
+const children = [phase1, phase2];
 let hasExited = false;
 
-function shutdown(code = 0) {
-  if (hasExited) {
-    return;
-  }
-  hasExited = true;
-  for (const child of children) {
-    if (child && !child.killed) {
-      child.kill("SIGTERM");
-    }
-  }
-  process.exit(code);
-}
-
-for (const child of children) {
+function bindChildExit(child) {
   child.on("exit", (code) => {
     if (code && code !== 0) {
       shutdown(code);
@@ -78,6 +84,24 @@ for (const child of children) {
     console.error("[dev-orchestrator] child process error:", error);
     shutdown(1);
   });
+}
+
+function shutdown(code = 0) {
+  if (hasExited) {
+    return;
+  }
+  hasExited = true;
+  clearTimeout(phase3Timer);
+  for (const child of children) {
+    if (child && !child.killed) {
+      child.kill("SIGTERM");
+    }
+  }
+  process.exit(code);
+}
+
+for (const child of children) {
+  bindChildExit(child);
 }
 
 process.on("SIGINT", () => shutdown(0));

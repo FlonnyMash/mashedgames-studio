@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, RefreshCw } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
@@ -10,6 +11,7 @@ import {
   type PublishedVersion,
   type Tier,
 } from "@/components/admin/PublishTemplateDetailsDialog";
+import { parseAdminTemplateTab } from "@/lib/storefront-editor-routes";
 
 type LocalTemplate = {
   id: string;
@@ -82,6 +84,8 @@ const PublishTemplateListRow = memo(function PublishTemplateListRow({
 });
 
 export function PublishTemplatePanel() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [listState, setListState] = useState<ListState>({ status: "loading" });
   const [publishedVersions, setPublishedVersions] = useState<
     Record<string, PublishedVersion>
@@ -100,12 +104,24 @@ export function PublishTemplatePanel() {
     null,
   );
 
+  const adminTemplateParam = searchParams.get("template");
+  const adminTabParam = parseAdminTemplateTab(searchParams.get("tab"));
+
+  const urlSelectedTemplateId = useMemo(() => {
+    if (listState.status !== "success" || !adminTemplateParam) return null;
+    return listState.templates.some((t) => t.id === adminTemplateParam)
+      ? adminTemplateParam
+      : null;
+  }, [adminTemplateParam, listState]);
+
+  const resolvedSelectedTemplateId = selectedTemplateId ?? urlSelectedTemplateId;
+
   const selectedTemplate = useMemo(() => {
-    if (listState.status !== "success" || !selectedTemplateId) return null;
+    if (listState.status !== "success" || !resolvedSelectedTemplateId) return null;
     return (
-      listState.templates.find((t) => t.id === selectedTemplateId) ?? null
+      listState.templates.find((t) => t.id === resolvedSelectedTemplateId) ?? null
     );
-  }, [listState, selectedTemplateId]);
+  }, [listState, resolvedSelectedTemplateId]);
 
   const fetchDemoUrlsFromLocalMeta = useCallback(async (templates: LocalTemplate[]) => {
     try {
@@ -141,6 +157,25 @@ export function PublishTemplatePanel() {
       // Non-fatal — demo URL inputs fall back to empty until deploy/publish.
     }
   }, []);
+
+  const openTemplate = useCallback(
+    (templateId: string) => {
+      setSelectedTemplateId(templateId);
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("template", templateId);
+      router.replace(`/admin?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams],
+  );
+
+  const closeTemplate = useCallback(() => {
+    setSelectedTemplateId(null);
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("template");
+    params.delete("tab");
+    const query = params.toString();
+    router.replace(query ? `/admin?${query}` : "/admin", { scroll: false });
+  }, [router, searchParams]);
 
   const fetchTemplates = useCallback(async () => {
     setListState({ status: "loading" });
@@ -443,10 +478,10 @@ export function PublishTemplatePanel() {
     return map;
   }, [listState, publishedVersions]);
 
-  const selectedState = selectedTemplateId
-    ? (templateStates[selectedTemplateId] ?? {
+  const selectedState = resolvedSelectedTemplateId
+    ? (templateStates[resolvedSelectedTemplateId] ?? {
         status: "idle" as const,
-        publishedVersion: publishedVersions[selectedTemplateId] ?? null,
+        publishedVersion: publishedVersions[resolvedSelectedTemplateId] ?? null,
       })
     : null;
 
@@ -506,7 +541,7 @@ export function PublishTemplatePanel() {
                   <PublishTemplateListRow
                     displayName={template.displayName}
                     isPublished={publishedById[template.id] ?? false}
-                    onSelect={() => setSelectedTemplateId(template.id)}
+                    onSelect={() => openTemplate(template.id)}
                   />
                 </li>
               ))}
@@ -530,8 +565,11 @@ export function PublishTemplatePanel() {
         <PublishTemplateDetailsDialog
           templateId={selectedTemplate.id}
           displayName={selectedTemplate.displayName}
-          open={Boolean(selectedTemplateId)}
-          onClose={() => setSelectedTemplateId(null)}
+          open={Boolean(resolvedSelectedTemplateId)}
+          onClose={closeTemplate}
+          initialTab={
+            selectedTemplate.id === adminTemplateParam ? adminTabParam : "settings"
+          }
           selectedTier={tierSelections[selectedTemplate.id] ?? "free"}
           onTierChange={(tier) =>
             setTierSelections((prev) => ({

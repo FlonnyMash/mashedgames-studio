@@ -2,6 +2,8 @@
 
 import "react-image-crop/dist/ReactCrop.css";
 
+import { MarkdownField } from "@/components/ui/MarkdownField";
+import { RichHtmlContent } from "@/components/ui/RichHtmlContent";
 import {
   ImageIcon,
   Loader2,
@@ -476,22 +478,24 @@ export function TemplateContentFields({
 }) {
   return (
     <div className="space-y-5">
-      <label className="block space-y-1.5">
-        <span className={templateMetaLabelClass}>Description</span>
-        <textarea
-          value={description}
-          onChange={(e) => onDescriptionChange(e.target.value)}
-          rows={3}
-          disabled={disabled}
-          placeholder="Short description shown in the Storefront…"
-          className={`${templateMetaInputClass} resize-y disabled:opacity-50`}
-        />
-      </label>
+      <MarkdownField
+        label="Description"
+        hint="Rich text or Markdown — rendered in the Storefront detail view."
+        value={description}
+        onChange={onDescriptionChange}
+        rows={8}
+        disabled={disabled}
+        placeholder={
+          "## Campaign overview\n\nDescribe how this template fits your brand activation…"
+        }
+        inputClassName={templateMetaInputClass}
+        labelClassName={templateMetaLabelClass}
+      />
 
       <label className="block space-y-1.5">
-        <span className={templateMetaLabelClass}>Tutorial (Markdown)</span>
+        <span className={templateMetaLabelClass}>Tutorial</span>
         <p className="text-xs text-zinc-500">
-          Rendered as help text inside the Configurator.
+          Rich text or Markdown — rendered as help text inside the Configurator.
         </p>
         <textarea
           value={tutorial}
@@ -503,6 +507,14 @@ export function TemplateContentFields({
           }
           className={`${templateMetaInputClass} resize-y font-mono text-xs disabled:opacity-50`}
         />
+        {tutorial.trim() ? (
+          <div className="rounded-xl border border-zinc-200/80 bg-white px-4 py-3">
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-wider text-zinc-400">
+              Preview
+            </p>
+            <RichHtmlContent source={tutorial} variant="light" />
+          </div>
+        ) : null}
       </label>
     </div>
   );

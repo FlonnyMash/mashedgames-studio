@@ -2,8 +2,10 @@ import { revalidatePath } from "next/cache";
 import type { NextRequest } from "next/server";
 import {
   UpdateTemplateMetadataInputSchema,
+  parseTemplateControls,
   tagFromRow,
   type TagRow,
+  type TemplateControlEntry,
 } from "@mashedgames/shared";
 import {
   createServiceRoleClient,
@@ -32,6 +34,7 @@ type MetadataResponse =
       tutorial: string;
       thumbnailUrl: string;
       previewUrls: string[];
+      controls: TemplateControlEntry[];
       tagIds: string[];
       tags: TagWithCategory[];
     }
@@ -138,6 +141,7 @@ export async function GET(
     tutorial: metadata?.tutorial ?? "",
     thumbnailUrl: metadata?.thumbnail_url ?? "",
     previewUrls: metadata?.preview_urls ?? [],
+    controls: parseTemplateControls(metadata?.controls),
     tagIds: tags.map((t) => t.id),
     tags,
   } satisfies MetadataResponse);
@@ -209,6 +213,7 @@ export async function PUT(
       p_thumbnail_url: thumbnailUrl,
       p_preview_urls: previewUrls,
       p_tag_ids: input.tagIds,
+      p_controls: input.controls ?? [],
     },
   );
 
@@ -225,7 +230,20 @@ export async function PUT(
     tutorial: input.tutorial || localUrls.tutorial,
   });
 
+  if (input.tier) {
+    const { error: tierError } = await auth.serviceClient
+      .from("templates")
+      .update({ tier: input.tier })
+      .eq("template_slug", templateSlug)
+      .eq("is_latest", true);
+
+    if (tierError) {
+      console.error("[templates/metadata] Tier update failed:", tierError);
+    }
+  }
+
   revalidatePath("/dashboard/store");
+  revalidatePath(`/dashboard/store/templates/${templateSlug}`);
 
   return Response.json({
     ok: true,
@@ -236,6 +254,7 @@ export async function PUT(
     tutorial: input.tutorial || localUrls.tutorial,
     thumbnailUrl,
     previewUrls,
+    controls: input.controls ?? [],
     tagIds: input.tagIds,
   });
 }

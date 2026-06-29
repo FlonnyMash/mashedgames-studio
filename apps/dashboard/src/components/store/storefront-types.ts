@@ -1,4 +1,5 @@
 import type { Tables } from "@/lib/supabaseClient";
+import type { TemplateControlEntry } from "@mashedgames/shared";
 
 // ---------------------------------------------------------------------------
 // Shared types for the Template Storefront feature
@@ -7,9 +8,13 @@ import type { Tables } from "@/lib/supabaseClient";
 export type TemplateRow = Tables<"templates">;
 export type CatalogTemplateRow = Tables<"published_templates_with_tags">;
 
-export type EnrichedTemplate = CatalogTemplateRow & {
+export type EnrichedTemplate = Omit<CatalogTemplateRow, "controls"> & {
+  /** Parsed demo control hints for the theater view. */
+  controls?: TemplateControlEntry[];
   /** True when the current user's org holds an active license for this template. */
   isLicensed: boolean;
+  /** True when the template is not yet live in the published catalog (admin preview). */
+  isDraft?: boolean;
 };
 
 // ---------------------------------------------------------------------------

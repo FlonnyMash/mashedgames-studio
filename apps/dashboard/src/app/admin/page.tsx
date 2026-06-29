@@ -1,8 +1,15 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { ShieldAlert } from "lucide-react";
 import { LicenseProvisioningForm } from "@/components/admin/LicenseProvisioningForm";
 import { PublishTemplatePanel } from "@/components/admin/PublishTemplatePanel";
 import { RoleGate } from "@/components/auth/RoleGate";
+
+function PublishTemplatePanelFallback() {
+  return (
+    <div className="h-48 animate-pulse rounded-xl border border-zinc-200 bg-zinc-100" />
+  );
+}
 
 export default function AdminPage() {
   return (
@@ -16,7 +23,9 @@ export default function AdminPage() {
 
       <RoleGate allow="studio_admin">
         <div className="flex flex-col gap-8">
-          <PublishTemplatePanel />
+          <Suspense fallback={<PublishTemplatePanelFallback />}>
+            <PublishTemplatePanel />
+          </Suspense>
           <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-5 py-4">
             <p className="text-sm text-zinc-600">
               Manage global storefront tags in the{" "}

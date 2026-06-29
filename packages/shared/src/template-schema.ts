@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { GameLifecycleEventTypeSchema } from "./game-events";
+import { TemplateControlsSchema } from "./template-metadata-schema";
 
 // ---------------------------------------------------------------------------
 // UI Modules
@@ -154,9 +155,10 @@ export const TemplateSchemaSchema = z.object({
   // ---------------------------------------------------------------------------
 
   /**
-   * Short marketing description shown in the Storefront and Studio list.
-   * Leave absent in manifest.ts — this field is populated from the
-   * template's meta/template-meta.json sidecar by the publish pipeline.
+   * Rich HTML marketing description shown in the Storefront detail view and
+   * Studio list. Legacy Markdown is converted at render time. Leave absent in
+   * manifest.ts — populated from the template's meta/template-meta.json
+   * sidecar by the publish pipeline.
    */
   description: z.string().optional(),
 
@@ -175,8 +177,9 @@ export const TemplateSchemaSchema = z.object({
   previews: z.array(z.string()).optional(),
 
   /**
-   * Markdown string rendered as a help tutorial inside the Configurator.
-   * Leave absent in manifest.ts — populated from meta/template-meta.json.
+   * Rich HTML rendered as a help tutorial inside the Configurator. Legacy
+   * Markdown is converted at render time. Leave absent in manifest.ts —
+   * populated from meta/template-meta.json.
    */
   tutorial: z.string().optional(),
 
@@ -194,6 +197,12 @@ export const TemplateSchemaSchema = z.object({
    * Populated by the deploy-demo pipeline after a successful Cloudflare Pages upload.
    */
   demo_size_kb: z.number().optional(),
+
+  /**
+   * Key-action hints for the storefront demo theater controls popover.
+   * Populated from template_metadata at read time.
+   */
+  controls: TemplateControlsSchema.optional(),
 });
 
 export type TemplateSchema = z.infer<typeof TemplateSchemaSchema>;

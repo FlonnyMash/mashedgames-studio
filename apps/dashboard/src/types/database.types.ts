@@ -280,6 +280,7 @@ export type Database = {
       template_metadata: {
         Row: {
           badge_type: Database["public"]["Enums"]["template_badge_type"] | null
+          controls: Json
           created_at: string
           description: string
           preview_urls: string[]
@@ -291,6 +292,7 @@ export type Database = {
         }
         Insert: {
           badge_type?: Database["public"]["Enums"]["template_badge_type"] | null
+          controls?: Json
           created_at?: string
           description?: string
           preview_urls?: string[]
@@ -302,6 +304,7 @@ export type Database = {
         }
         Update: {
           badge_type?: Database["public"]["Enums"]["template_badge_type"] | null
+          controls?: Json
           created_at?: string
           description?: string
           preview_urls?: string[]
@@ -423,6 +426,7 @@ export type Database = {
           badge_type: Database["public"]["Enums"]["template_badge_type"] | null
           bundle_signature: string | null
           checksum: string | null
+          controls: Json | null
           description: string | null
           id: string | null
           is_latest: boolean | null
@@ -456,6 +460,7 @@ export type Database = {
       sync_template_metadata_and_tags: {
         Args: {
           p_badge_type: Database["public"]["Enums"]["template_badge_type"]
+          p_controls?: Json
           p_description: string
           p_preview_urls: string[]
           p_tag_ids: string[]

@@ -7,16 +7,35 @@ import {
   getGameEngineOrigin,
   resolveGameEnginePreviewUrl,
 } from "@/bridge/messenger";
-import { usePreviewBridgeStore } from "@/lib/preview-bridge-store";
+import { OverlayLayer } from "@/components/studio/overlays/OverlayLayer";
 import {
   PreviewOverlayRoot,
   usePreviewOverlayScale,
 } from "@/lib/preview-overlay-scale";
-import { OverlayLayer } from "@/components/studio/overlays/OverlayLayer";
+import { usePreviewBridgeStore } from "@/lib/preview-bridge-store";
+import {
+  EXPAND_BUTTON_CLASSES,
+  THEATER_CLOSE_BUTTON_CLASSES,
+  THEATER_OVERLAY_CLASSES,
+  THEATER_PHONE_SHADOW_EXPANDED,
+  THEATER_PHONE_SHADOW_NORMAL,
+  useTheaterMode,
+} from "@/lib/theater-preview-styles";
+import { cn } from "@/lib/utils";
 import { useBridgeSync } from "@/store/useBridgeSync";
 import { useConfigStore } from "@/store/useConfigStore";
 import type { AppMode, GameTemplateId } from "@mashedgames/shared";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Maximize2, X } from "lucide-react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 const PHONE_FRAME_WIDTH = 390;
 const PHONE_FRAME_HEIGHT = 844;
@@ -40,6 +59,17 @@ export function DevicePreview({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const phoneScreenRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
+  const { isExpanded, expand, close } = useTheaterMode();
+
+  const handleCloseClick = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      event.preventDefault();
+      close();
+    },
+    [close],
+  );
+
   const [phoneFrameSize, setPhoneFrameSize] = useState({
     width: PHONE_FRAME_WIDTH,
     height: PHONE_FRAME_HEIGHT,
@@ -174,7 +204,7 @@ export function DevicePreview({
       const scale = Math.min(
         width / PHONE_FRAME_WIDTH,
         height / PHONE_FRAME_HEIGHT,
-        1,
+        isExpanded ? Number.POSITIVE_INFINITY : 1,
       );
       setPhoneFrameSize({
         width: Math.floor(PHONE_FRAME_WIDTH * scale),
@@ -187,22 +217,75 @@ export function DevicePreview({
     updatePhoneFrameSize();
 
     return () => observer.disconnect();
-  }, []);
+  }, [isExpanded]);
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden p-4">
+    <div
+      className={cn(
+        "transition-all duration-300",
+        isExpanded
+          ? THEATER_OVERLAY_CLASSES
+          : "relative flex min-h-0 flex-1 overflow-hidden p-4",
+      )}
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {isExpanded ? (
+        <div
+          className="pointer-events-none absolute inset-0 bg-black/85 backdrop-blur-md"
+          aria-hidden
+        />
+      ) : null}
+
+      {isExpanded ? (
+        <button
+          type="button"
+          onClick={handleCloseClick}
+          className={THEATER_CLOSE_BUTTON_CLASSES}
+          aria-label="Close fullscreen preview"
+        >
+          <X className="h-5 w-5" strokeWidth={2.25} aria-hidden />
+        </button>
+      ) : null}
+
       <div
         ref={previewContainerRef}
-        className="flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden"
+        className={cn(
+          "relative flex min-h-0 min-w-0 flex-1 items-center justify-center overflow-hidden transition-all duration-300",
+          isExpanded ? "h-full w-full p-6 sm:p-10" : "",
+        )}
       >
+        {!isExpanded ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              expand();
+            }}
+            className={cn("absolute top-2 right-2 z-20", EXPAND_BUTTON_CLASSES)}
+            aria-label="Expand preview to fullscreen"
+          >
+            <Maximize2 className="h-4 w-4" strokeWidth={2.25} aria-hidden />
+          </button>
+        ) : null}
+
         <div
-          className="relative shrink-0"
+          className={cn(
+            "relative shrink-0 transition-all duration-300",
+            !isExpanded && "scale-[1.02]",
+          )}
           style={{
             width: phoneFrameSize.width,
             height: phoneFrameSize.height,
           }}
         >
-          <div className="absolute inset-0 rounded-[2.5rem] bg-zinc-900 p-3 shadow-2xl shadow-zinc-900/20">
+          <div
+            className={cn(
+              "absolute inset-0 rounded-[2.5rem] bg-zinc-900 p-3 transition-all duration-300",
+              isExpanded ? THEATER_PHONE_SHADOW_EXPANDED : THEATER_PHONE_SHADOW_NORMAL,
+            )}
+          >
             <div className="absolute top-0 left-1/2 z-10 h-6 w-28 -translate-x-1/2 rounded-b-2xl bg-zinc-900" />
             <div
               ref={phoneScreenRef}

@@ -124,6 +124,7 @@ const ALLOWED_ADMIN_FETCH_PREFIXES = [
 
 const TEMPLATE_TAGS_PATH = /^\/api\/templates\/[^/?#]+\/tags\/?$/;
 const TEMPLATE_METADATA_PATH = /^\/api\/templates\/[^/?#]+\/metadata\/?$/;
+const STORE_TEMPLATE_PATH = /^\/api\/store\/templates\/[^/?#]+\/?$/;
 
 function normalizeAdminFetchPathname(pathname) {
   if (typeof pathname !== "string") {
@@ -169,6 +170,9 @@ function isAllowedAdminFetchPath(pathname) {
     return true;
   }
   if (TEMPLATE_METADATA_PATH.test(normalized)) {
+    return true;
+  }
+  if (STORE_TEMPLATE_PATH.test(normalized)) {
     return true;
   }
   return ALLOWED_ADMIN_FETCH_PREFIXES.some(
