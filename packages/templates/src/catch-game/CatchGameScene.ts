@@ -18,9 +18,11 @@ const TEXTURE_KEYS = {
   badItem: "collectible-bad",
 } as const;
 
+// Keys inside GameConfig.fields — declared by this template's own
+// TemplateFieldDescriptor[] in manifest.ts, never hardcoded on GameConfig.
 const TEXTURE_CONFIG_FIELDS: Record<
   (typeof TEXTURE_KEYS)[keyof typeof TEXTURE_KEYS],
-  keyof GameConfig
+  string
 > = {
   [TEXTURE_KEYS.player]: "playerCatcherUrl",
   [TEXTURE_KEYS.goodItem]: "collectibleGoodUrl",
@@ -114,12 +116,14 @@ export class CatchGameScene extends Phaser.Scene {
     this.applySpriteTexture(key);
   };
 
-  private hasCustomAsset(
-    config: GameConfig,
-    field: keyof GameConfig,
-  ): boolean {
-    const value = config[field];
+  private hasCustomAsset(config: GameConfig, field: string): boolean {
+    const value = config.fields?.[field];
     return typeof value === "string" && value.trim().length > 0;
+  }
+
+  private numberField(config: GameConfig, key: string, fallback: number): number {
+    const value = config.fields?.[key];
+    return typeof value === "number" ? value : fallback;
   }
 
   private applyConfiguredSprites(): void {
@@ -393,21 +397,34 @@ export class CatchGameScene extends Phaser.Scene {
 
   private getGoodTuning(): GoodItemTuning {
     const config = this.runtimeConfig;
-    const fallSpeedStart =
-      config.fallSpeedStart ?? DEFAULT_GOOD_FALL_SPEED_START;
+    const fallSpeedStart = this.numberField(
+      config,
+      "fallSpeedStart",
+      DEFAULT_GOOD_FALL_SPEED_START,
+    );
     const fallSpeedMax = Math.max(
-      config.fallSpeedMax ?? DEFAULT_GOOD_FALL_SPEED_MAX,
+      this.numberField(config, "fallSpeedMax", DEFAULT_GOOD_FALL_SPEED_MAX),
       fallSpeedStart,
     );
-    const spawnIntervalMs =
-      config.spawnIntervalMs ?? DEFAULT_GOOD_SPAWN_INTERVAL_MS;
+    const spawnIntervalMs = this.numberField(
+      config,
+      "spawnIntervalMs",
+      DEFAULT_GOOD_SPAWN_INTERVAL_MS,
+    );
     const minSpawnIntervalMs = Math.min(
-      config.minSpawnIntervalMs ?? DEFAULT_GOOD_MIN_SPAWN_INTERVAL_MS,
+      this.numberField(
+        config,
+        "minSpawnIntervalMs",
+        DEFAULT_GOOD_MIN_SPAWN_INTERVAL_MS,
+      ),
       spawnIntervalMs,
     );
 
     return {
-      points: Math.max(1, config.goodItemPoints ?? DEFAULT_GOOD_ITEM_POINTS),
+      points: Math.max(
+        1,
+        this.numberField(config, "goodItemPoints", DEFAULT_GOOD_ITEM_POINTS),
+      ),
       spawnIntervalMs: Math.max(200, spawnIntervalMs),
       minSpawnIntervalMs: Math.max(150, minSpawnIntervalMs),
       fallSpeedStart: Math.max(80, fallSpeedStart),
@@ -417,21 +434,34 @@ export class CatchGameScene extends Phaser.Scene {
 
   private getBadTuning(): BadItemTuning {
     const config = this.runtimeConfig;
-    const fallSpeedStart =
-      config.badFallSpeedStart ?? DEFAULT_BAD_FALL_SPEED_START;
+    const fallSpeedStart = this.numberField(
+      config,
+      "badFallSpeedStart",
+      DEFAULT_BAD_FALL_SPEED_START,
+    );
     const fallSpeedMax = Math.max(
-      config.badFallSpeedMax ?? DEFAULT_BAD_FALL_SPEED_MAX,
+      this.numberField(config, "badFallSpeedMax", DEFAULT_BAD_FALL_SPEED_MAX),
       fallSpeedStart,
     );
-    const spawnIntervalMs =
-      config.badSpawnIntervalMs ?? DEFAULT_BAD_SPAWN_INTERVAL_MS;
+    const spawnIntervalMs = this.numberField(
+      config,
+      "badSpawnIntervalMs",
+      DEFAULT_BAD_SPAWN_INTERVAL_MS,
+    );
     const minSpawnIntervalMs = Math.min(
-      config.badMinSpawnIntervalMs ?? DEFAULT_BAD_MIN_SPAWN_INTERVAL_MS,
+      this.numberField(
+        config,
+        "badMinSpawnIntervalMs",
+        DEFAULT_BAD_MIN_SPAWN_INTERVAL_MS,
+      ),
       spawnIntervalMs,
     );
 
     return {
-      penalty: Math.max(0, config.badItemPenalty ?? DEFAULT_BAD_ITEM_PENALTY),
+      penalty: Math.max(
+        0,
+        this.numberField(config, "badItemPenalty", DEFAULT_BAD_ITEM_PENALTY),
+      ),
       spawnIntervalMs: Math.max(200, spawnIntervalMs),
       minSpawnIntervalMs: Math.max(150, minSpawnIntervalMs),
       fallSpeedStart: Math.max(80, fallSpeedStart),

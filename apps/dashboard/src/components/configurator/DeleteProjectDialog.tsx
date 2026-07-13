@@ -1,5 +1,6 @@
 "use client";
 
+import { projectFetch } from "@/lib/project-api-client";
 import { Loader2 } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
@@ -54,7 +55,7 @@ export function DeleteProjectDialog({
     setError(null);
 
     try {
-      const response = await fetch(
+      const response = await projectFetch(
         `/api/projects/${encodeURIComponent(projectId)}`,
         { method: "DELETE" },
       );

@@ -1,4 +1,5 @@
 import { importProjectAsset } from "@/lib/project-io";
+import { resolveProjectOwnerContext } from "@/lib/project-owner-context";
 import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
@@ -37,10 +38,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const buffer = Buffer.from(await file.arrayBuffer());
-    const result = await importProjectAsset(projectId, targetPath.trim(), {
-      fileName: file.name,
-      buffer,
-    });
+    const ownerContext = await resolveProjectOwnerContext(request);
+    const result = await importProjectAsset(
+      projectId,
+      targetPath.trim(),
+      {
+        fileName: file.name,
+        buffer,
+      },
+      ownerContext,
+    );
 
     if (!result.ok) {
       return Response.json(

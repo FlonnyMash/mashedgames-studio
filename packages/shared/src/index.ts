@@ -28,10 +28,13 @@ export {
 } from "./resolve-asset-preview-url";
 
 export {
-  CONFIG_TEXTURE_FIELD_MAP,
+  UNIVERSAL_TEXTURE_FIELD_MAP,
+  getDynamicTextureFieldMap,
+  isUniversalTextureField,
   listConfiguredAssetUploads,
   textureKeyForConfigField,
-  type ConfigAssetFieldKey,
+  type ConfiguredAssetUpload,
+  type UniversalTextureFieldKey,
 } from "./config-asset-fields";
 
 export {
@@ -46,10 +49,22 @@ export {
   parseGameConfig,
   patchConfig,
   patchFlatConfig,
+  patchTemplateField,
   type AppMode,
   type GameConfig,
   type GameTemplateId,
 } from "./flat-game-config";
+
+export {
+  TEMPLATE_FIELD_TYPE,
+  TemplateFieldDescriptorSchema,
+  TemplateFieldTypeSchema,
+  buildDefaultFieldValues,
+  buildFieldsZodSchema,
+  imageFieldDescriptors,
+  type TemplateFieldDescriptor,
+  type TemplateFieldType,
+} from "./template-field-schema";
 
 export {
   BASELINE_TEMPLATE_ID,
@@ -58,10 +73,7 @@ export {
   normalizeTemplateId,
 } from "./template-id";
 
-export {
-  CATCH_GAME_CONFIG_DEFAULTS,
-  applyTemplateConfigDefaults,
-} from "./template-config-defaults";
+export { applyTemplateConfigDefaults } from "./template-config-defaults";
 
 export {
   FLAT_FIELD_REGISTRY,
@@ -146,6 +158,15 @@ export {
 } from "./game-project";
 
 export {
+  UnauthorizedProjectAccessError,
+  assertProjectOwnership,
+  buildProjectSignaturePayload,
+  isLegacyProjectManifest,
+  signProjectPayload,
+  verifyProjectSignature,
+} from "./project-ownership";
+
+export {
   assertPermission,
   canAccess,
   filterFieldsByMode,
@@ -226,14 +247,12 @@ export {
   AssetFormatSchema,
   AssetDimensionsSchema,
   AssetRestrictionSchema,
-  ConfigFieldHintSchema,
   TemplateSchemaSchema,
   isLockedField,
   supportsUIModule,
   parseTemplateSchema,
   type AssetFormat,
   type AssetRestriction,
-  type ConfigFieldHint,
   type TemplateSchema,
   type UIModule,
 } from "./template-schema";

@@ -1,12 +1,8 @@
 "use client";
 
-import { saveFlatConfigViaElectron } from "@/lib/flat-config-ipc";
+import { projectApiFetch } from "@/lib/project-api-client";
 import { useConfiguratorStore } from "@mashedgames/configurator-engine";
 import { useCallback, useState } from "react";
-
-function isElectronRuntime(): boolean {
-  return typeof window !== "undefined" && !!window.electron?.ipcRenderer;
-}
 
 export function useSaveGameProject() {
   const [saving, setSaving] = useState(false);
@@ -26,18 +22,15 @@ export function useSaveGameProject() {
     setStatus(null);
 
     try {
-      if (isElectronRuntime()) {
-        await saveFlatConfigViaElectron(projectId, client);
-      } else {
-        const response = await fetch(`/api/projects/${projectId}/save`, {
+      const data = await projectApiFetch<{ projectId: string }>(
+        `/api/projects/${projectId}/save`,
+        {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ client }),
-        });
-        const data = (await response.json()) as { ok?: boolean; error?: string };
-        if (!response.ok || !data.ok) {
-          throw new Error(data.error ?? "Save failed.");
-        }
+          body: { client },
+        },
+      );
+      if (!data.ok) {
+        throw new Error(data.error ?? "Save failed.");
       }
       useConfiguratorStore.getState().markClientSaved();
       setStatus("Project saved.");
@@ -56,18 +49,15 @@ export function useSaveGameProject() {
 
 export async function saveProjectClientNow(projectId: string): Promise<void> {
   const client = useConfiguratorStore.getState().exportClientPayload();
-  if (isElectronRuntime()) {
-    await saveFlatConfigViaElectron(projectId, client);
-  } else {
-    const response = await fetch(`/api/projects/${projectId}/save`, {
+  const data = await projectApiFetch<{ projectId: string }>(
+    `/api/projects/${projectId}/save`,
+    {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ client }),
-    });
-    const data = (await response.json()) as { ok?: boolean; error?: string };
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error ?? "Save failed.");
-    }
+      body: { client },
+    },
+  );
+  if (!data.ok) {
+    throw new Error(data.error ?? "Save failed.");
   }
   useConfiguratorStore.getState().markClientSaved();
 }

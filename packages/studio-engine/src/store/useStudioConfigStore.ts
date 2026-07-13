@@ -5,6 +5,7 @@ import {
   GameConfigSchema,
   normalizeTemplateId,
   patchFlatConfig,
+  patchTemplateField as patchTemplateFieldValue,
   type GameConfig,
 } from "@mashedgames/shared";
 import { create } from "state";
@@ -17,6 +18,7 @@ export interface StudioConfigStore {
     key: K,
     value: GameConfig[K],
   ) => void;
+  patchTemplateField: (key: string, value: string | number | boolean) => void;
   resetConfig: () => void;
   exportConfig: () => GameConfig;
   hydrateConfig: (config: GameConfig) => void;
@@ -46,6 +48,15 @@ export const useStudioConfigStore = create<StudioConfigStore>((set, get) => ({
 
   patchConfig: (key, value) => {
     const merged = patchFlatConfig(get().config, key, value);
+    const parsed = GameConfigSchema.safeParse(merged);
+    if (!parsed.success) {
+      return;
+    }
+    set({ config: toStudioConfig(parsed.data) });
+  },
+
+  patchTemplateField: (key, value) => {
+    const merged = patchTemplateFieldValue(get().config, key, value);
     const parsed = GameConfigSchema.safeParse(merged);
     if (!parsed.success) {
       return;

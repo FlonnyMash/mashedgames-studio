@@ -1,13 +1,15 @@
 import { ackParentLock } from "@/lib/project-io";
+import { resolveProjectOwnerContext } from "@/lib/project-owner-context";
 import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
 type RouteContext = { params: Promise<{ projectId: string }> };
 
-export async function POST(_request: NextRequest, context: RouteContext) {
+export async function POST(request: NextRequest, context: RouteContext) {
   const { projectId } = await context.params;
-  const result = await ackParentLock(projectId);
+  const ownerContext = await resolveProjectOwnerContext(request);
+  const result = await ackParentLock(projectId, ownerContext);
 
   if (!result.ok) {
     return Response.json(

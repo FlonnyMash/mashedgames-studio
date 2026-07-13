@@ -58,8 +58,7 @@ export const ${toPascalCase(templateId).charAt(0).toLowerCase() + toPascalCase(t
   supportsUI: [],
   supportedEvents: [],
   assetRestrictions: [],
-  meta: {},
-  configFieldHints: {},
+  fields: [],
 } satisfies TemplateSchema;
 
 export type ${toPascalCase(templateId)}Manifest = typeof ${toPascalCase(templateId).charAt(0).toLowerCase() + toPascalCase(templateId).slice(1)}Manifest;

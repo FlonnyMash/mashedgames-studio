@@ -1,44 +1,23 @@
 import type { GameConfig } from "./flat-game-config";
-import { GameConfigSchema } from "./flat-game-config";
-import { BASELINE_TEMPLATE_ID, normalizeTemplateId } from "./template-id";
-
-/** Default tuning + overlay flags for the catch-game template. */
-export const CATCH_GAME_CONFIG_DEFAULTS = {
-  goodItemPoints: 10,
-  badItemPenalty: 5,
-  spawnIntervalMs: 900,
-  minSpawnIntervalMs: 420,
-  fallSpeedStart: 150,
-  fallSpeedMax: 280,
-  badSpawnIntervalMs: 1800,
-  badMinSpawnIntervalMs: 900,
-  badFallSpeedStart: 130,
-  badFallSpeedMax: 260,
-  showLeadCapture: true,
-  showHighscore: true,
-} as const satisfies Partial<GameConfig>;
+import { buildDefaultFieldValues, type TemplateFieldDescriptor } from "./template-field-schema";
 
 /**
- * Fills missing catch-game tuning keys so Game Controls reflects runtime defaults.
+ * Fills missing template-specific field values from the active template's
+ * own TemplateFieldDescriptor[] (its manifest.ts `fields` array). Generic
+ * across every template — there is no hardcoded per-template branch here.
+ * Pass the active template's descriptors when known (e.g. after loading its
+ * manifest); omit them to leave `config.fields` untouched.
  */
-export function applyTemplateConfigDefaults(config: GameConfig): GameConfig {
-  const templateId = normalizeTemplateId(config.activeTemplateId);
-  if (templateId !== BASELINE_TEMPLATE_ID) {
+export function applyTemplateConfigDefaults(
+  config: GameConfig,
+  templateFields?: TemplateFieldDescriptor[],
+): GameConfig {
+  if (!templateFields || templateFields.length === 0) {
     return config;
   }
 
-  const merged: GameConfig = {
-    ...config,
-    activeTemplateId: templateId,
-  };
+  const defaults = buildDefaultFieldValues(templateFields);
+  const fields = { ...defaults, ...config.fields };
 
-  for (const [key, defaultValue] of Object.entries(CATCH_GAME_CONFIG_DEFAULTS)) {
-    const configKey = key as keyof typeof CATCH_GAME_CONFIG_DEFAULTS;
-    if (merged[configKey] === undefined) {
-      (merged as Record<string, unknown>)[configKey] = defaultValue;
-    }
-  }
-
-  const parsed = GameConfigSchema.safeParse(merged);
-  return parsed.success ? parsed.data : config;
+  return { ...config, fields };
 }

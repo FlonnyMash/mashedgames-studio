@@ -30,7 +30,8 @@ const { saveFlatConfig, loadFlatConfig, getProjectList } = require("./flat-confi
 const { registerAuthIpc, getSessionForInternal, refreshSessionForInternal } = require("./auth-ipc-utils");
 const { registerLicenseIpc } = require("./license-ipc-utils");
 const { registerStoreIpc } = require("./store-ipc-utils");
-const { registerAdminIpc } = require("./admin-ipc-utils");
+const { registerAdminIpc, callDashboardApi } = require("./admin-ipc-utils");
+const { registerProjectsIpc } = require("./projects-ipc-utils");
 const { registerUpdaterIpc } = require("./updater-ipc-utils");
 const { registerTemplateUpdateIpc } = require("./template-update-ipc-utils");
 
@@ -436,15 +437,16 @@ function registerGetProjectListIpc(workspacePath) {
 }
 
 async function fetchProjectExportConfigJson(projectId, port) {
-  const url = `http://127.0.0.1:${port}/api/projects/${encodeURIComponent(projectId)}/export-config`;
-  const response = await fetch(url);
-  const data = await response.json();
+  void port;
+  const data = await callDashboardApi(
+    `/api/projects/${encodeURIComponent(projectId)}/export-config`,
+  );
 
-  if (!response.ok || !data?.ok || typeof data.configJson !== "string") {
+  if (!data?.ok || typeof data.configJson !== "string") {
     const message =
       typeof data?.error === "string"
         ? data.error
-        : `Export config request failed (${response.status}).`;
+        : `Export config request failed (${data?.status ?? "unknown"}).`;
     throw new Error(message);
   }
 
@@ -1055,6 +1057,7 @@ app.whenReady().then(async () => {
     await registerAuthIpc();
     registerLicenseIpc(getSessionForInternal);
     registerAdminIpc(getSessionForInternal, getDashboardBaseUrl, refreshSessionForInternal);
+    registerProjectsIpc();
     registerStoreIpc(getSessionForInternal);
     registerStudioProtocol(workspacePath);
     autoMigrateLegacyProjects(getProjectsPath(workspacePath));

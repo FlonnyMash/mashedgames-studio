@@ -14,9 +14,20 @@ import {
   type AssetPreviewContext,
 } from "@mashedgames/shared";
 import { ImageFieldInput } from "./ImageFieldInput";
-import { NumberFieldInput } from "./NumberFieldInput";
+import { NumberFieldInput, type NumericFieldConstraints } from "./NumberFieldInput";
 import { SliderFieldInput } from "./SliderFieldInput";
 import { StyledTextInput } from "./StyledTextInput";
+
+/** FlatFieldDefinition.defaultValue is a wider union than numeric inputs need. */
+function numericConstraints(field: FlatFieldDefinition): NumericFieldConstraints {
+  return {
+    min: field.min,
+    max: field.max,
+    step: field.step,
+    defaultValue:
+      typeof field.defaultValue === "number" ? field.defaultValue : undefined,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -159,7 +170,7 @@ function FieldControl({
       <label className="block space-y-1.5">
         <span className="text-xs font-medium text-zinc-700">{field.label}</span>
         <NumberFieldInput
-          field={field}
+          field={numericConstraints(field)}
           value={typeof value === "number" ? value : undefined}
           disabled={disabled}
           onCommit={(next) => onFieldChange(field.key, next as never)}
@@ -173,7 +184,7 @@ function FieldControl({
       <label className="block space-y-1.5">
         <span className="text-xs font-medium text-zinc-700">{field.label}</span>
         <SliderFieldInput
-          field={field}
+          field={numericConstraints(field)}
           value={typeof value === "number" ? value : undefined}
           disabled={disabled}
           onCommit={(next) => onFieldChange(field.key, next as never)}

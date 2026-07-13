@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { FlatFieldDefinition } from "@mashedgames/shared";
+import type { NumericFieldConstraints } from "./NumberFieldInput";
 
 type SliderFieldInputProps = {
-  field: FlatFieldDefinition;
+  field: NumericFieldConstraints;
   value: number | undefined;
   disabled?: boolean;
   onCommit: (value: number) => void;
@@ -12,7 +12,7 @@ type SliderFieldInputProps = {
 
 function resolveSliderValue(
   value: number | undefined,
-  field: FlatFieldDefinition,
+  field: NumericFieldConstraints,
 ): number {
   if (typeof value === "number" && !Number.isNaN(value)) {
     return value;
@@ -25,7 +25,7 @@ function resolveSliderValue(
 
 function clampSliderValue(
   raw: number,
-  field: FlatFieldDefinition,
+  field: NumericFieldConstraints,
 ): number {
   let next = raw;
   if (field.min !== undefined) {

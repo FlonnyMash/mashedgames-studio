@@ -1,4 +1,5 @@
 import { listProjectIds, loadProject } from "@/lib/project-io";
+import { resolveProjectOwnerContext } from "@/lib/project-owner-context";
 import { readTemplateMeta, buildMetaAssetUrl } from "@/lib/template-meta-io";
 import { normalizeTemplateId, SaveModeSchema } from "@mashedgames/shared";
 import type { NextRequest } from "next/server";
@@ -16,16 +17,21 @@ export async function GET(request: NextRequest) {
     const templateId =
       rawTemplateId !== null ? normalizeTemplateId(rawTemplateId) : undefined;
 
+    const ownerContext = await resolveProjectOwnerContext(request);
+
     const ids = await listProjectIds(
       mode !== undefined || templateId !== undefined
         ? { mode, templateId }
         : undefined,
     );
 
-    const projects = await Promise.all(
+    const projects = (await Promise.all(
       ids.map(async (projectId) => {
-        const loaded = await loadProject(projectId);
+        const loaded = await loadProject(projectId, ownerContext);
         if (!loaded.ok) {
+          if (loaded.status === 403) {
+            return null;
+          }
           return { projectId, error: loaded.error };
         }
         const parentTemplateId = normalizeTemplateId(
@@ -52,6 +58,8 @@ export async function GET(request: NextRequest) {
           thumbnailUrl,
         };
       }),
+    )).filter(
+      (project): project is NonNullable<typeof project> => project !== null,
     );
     return Response.json({ ok: true, projects });
   } catch (error) {

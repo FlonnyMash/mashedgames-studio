@@ -1,5 +1,6 @@
 "use client";
 
+import { projectFetch } from "@/lib/project-api-client";
 import { saveProjectClientNow } from "@/hooks/useSaveGameProject";
 import { useConfiguratorStore } from "@mashedgames/configurator-engine";
 import { CloudUpload, Loader2 } from "lucide-react";
@@ -24,7 +25,7 @@ export function CloudflareDeployButton() {
     try {
       await saveProjectClientNow(projectId);
 
-      const response = await fetch(`/api/projects/${projectId}/deploy`, {
+      const response = await projectFetch(`/api/projects/${projectId}/deploy`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),

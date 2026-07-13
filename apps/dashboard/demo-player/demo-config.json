@@ -7,7 +7,6 @@
     "themeColor": "#6366f1",
     "backgroundColor": "#87a0d9",
     "logoUrl": "assets/1ce7f2cb-MashedGamesStudioLogo.png",
-    "collectibleBadUrl": "assets/a38c2cbc-bomb.png",
     "startScreenTitle": "Ready to play?",
     "startScreenSubtitle": "Tap start when you are ready.",
     "ctaLabel": "Start Game",
@@ -61,16 +60,19 @@
     "showHighscore": true,
     "showLeadCapture": true,
     "showCountdownTimer": true,
-    "goodItemPoints": 10,
-    "badItemPenalty": 5,
-    "spawnIntervalMs": 900,
-    "minSpawnIntervalMs": 420,
-    "fallSpeedStart": 150,
-    "fallSpeedMax": 280,
-    "badSpawnIntervalMs": 1800,
-    "badMinSpawnIntervalMs": 900,
-    "badFallSpeedStart": 130,
-    "badFallSpeedMax": 260
+    "fields": {
+      "collectibleBadUrl": "assets/a38c2cbc-bomb.png",
+      "goodItemPoints": 10,
+      "badItemPenalty": 5,
+      "spawnIntervalMs": 900,
+      "minSpawnIntervalMs": 420,
+      "fallSpeedStart": 150,
+      "fallSpeedMax": 280,
+      "badSpawnIntervalMs": 1800,
+      "badMinSpawnIntervalMs": 900,
+      "badFallSpeedStart": 130,
+      "badFallSpeedMax": 260
+    }
   },
   "runtimeAssets": {
     "assets/1ce7f2cb-MashedGamesStudioLogo.png": "/game-assets/1ce7f2cb-MashedGamesStudioLogo.png",

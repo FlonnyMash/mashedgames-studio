@@ -27,11 +27,15 @@ export const GameProjectManifestSchema = z.object({
   deployRepoUrl: z.string().url().optional(),
   /** Relative asset path (e.g. assets/logo.png) → absolute OS path for Electron preview. */
   runtimeAssets: z.record(z.string(), z.string()).optional(),
-});
+  /** Supabase auth user ID that owns this project. Absent on legacy saves. */
+  ownerId: z.string().uuid().optional(),
+  /** HMAC-SHA256 over canonical client.json payload + ownerId. Absent on legacy saves. */
+  signature: z.string().min(1).optional(),
+}).strip();
 
 export type GameProjectManifest = z.infer<typeof GameProjectManifestSchema>;
 
-export const ClientProjectPayloadSchema = GameConfigSchema;
+export const ClientProjectPayloadSchema = GameConfigSchema.strip();
 
 export type ClientProjectPayload = z.infer<typeof ClientProjectPayloadSchema>;
 

@@ -1,5 +1,6 @@
 import { deleteProject } from "@/lib/project-delete";
 import { loadProject, patchProjectDisplayName } from "@/lib/project-io";
+import { resolveProjectOwnerContext } from "@/lib/project-owner-context";
 import { normalizeTemplateId } from "@mashedgames/shared";
 import type { NextRequest } from "next/server";
 
@@ -7,9 +8,10 @@ export const runtime = "nodejs";
 
 type RouteContext = { params: Promise<{ projectId: string }> };
 
-export async function GET(_request: NextRequest, context: RouteContext) {
+export async function GET(request: NextRequest, context: RouteContext) {
   const { projectId } = await context.params;
-  const result = await loadProject(projectId);
+  const ownerContext = await resolveProjectOwnerContext(request);
+  const result = await loadProject(projectId, ownerContext);
 
   if (!result.ok) {
     return Response.json(
@@ -31,6 +33,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     },
     parentLock: result.data.parentLock,
     runtimeAssets: result.data.runtimeAssets,
+    templateFields: result.data.templateFields,
   });
 }
 
@@ -51,7 +54,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     );
   }
 
-  const result = await patchProjectDisplayName(projectId, body.displayName);
+  const result = await patchProjectDisplayName(
+    projectId,
+    body.displayName,
+    await resolveProjectOwnerContext(request),
+  );
   if (!result.ok) {
     return Response.json(
       { ok: false, error: result.error },

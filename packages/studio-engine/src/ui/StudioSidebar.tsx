@@ -1,17 +1,26 @@
 "use client";
 
-import type { FlatFieldDefinition } from "@mashedgames/shared";
+import type { FlatFieldDefinition, TemplateFieldDescriptor } from "@mashedgames/shared";
 import { useStudioConfigStore } from "../store/useStudioConfigStore";
+import { DynamicTemplateFieldPanel } from "./DynamicTemplateFieldPanel";
 import { FlatConfigPanel } from "./FlatConfigPanel";
 
 export function StudioSidebar({
   previewSlot,
   onImageFile,
+  templateFields = [],
+  onTemplateImageFile,
 }: {
   previewSlot?: React.ReactNode;
   onImageFile?: (
     file: File,
     field: FlatFieldDefinition,
+  ) => void | Promise<void>;
+  /** The active template's dynamic fields, from its manifest.ts. */
+  templateFields?: TemplateFieldDescriptor[];
+  onTemplateImageFile?: (
+    file: File,
+    field: TemplateFieldDescriptor,
   ) => void | Promise<void>;
 }) {
   const config = useStudioConfigStore((state) => state.config);
@@ -19,6 +28,9 @@ export function StudioSidebar({
     (state) => state.selectedTemplateId,
   );
   const patchConfig = useStudioConfigStore((state) => state.patchConfig);
+  const patchTemplateField = useStudioConfigStore(
+    (state) => state.patchTemplateField,
+  );
   const resetConfig = useStudioConfigStore((state) => state.resetConfig);
 
   return (
@@ -44,6 +56,17 @@ export function StudioSidebar({
           onImageFile={onImageFile}
           assetPreviewContext={{ templateId: selectedTemplateId }}
         />
+        {templateFields.length > 0 && (
+          <div className="mt-3">
+            <DynamicTemplateFieldPanel
+              fields={templateFields}
+              values={config.fields ?? {}}
+              onFieldChange={patchTemplateField}
+              onImageFile={onTemplateImageFile}
+              assetPreviewContext={{ templateId: selectedTemplateId }}
+            />
+          </div>
+        )}
         {previewSlot}
       </div>
     </aside>

@@ -1,10 +1,15 @@
 "use client";
 
+import { getWebAuthHeaders } from "@/lib/project-api-client";
 import {
   AssetWorkspaceSaveError,
   saveAssetToWorkspace,
 } from "@/lib/save-asset-to-workspace";
-import { textureKeyForConfigField, type GameProjectManifest } from "@mashedgames/shared";
+import {
+  textureKeyForConfigField,
+  type GameProjectManifest,
+  type TemplateFieldDescriptor,
+} from "@mashedgames/shared";
 
 export type ImportAssetClientResult = {
   relativePath: string;
@@ -13,8 +18,11 @@ export type ImportAssetClientResult = {
   manifest?: GameProjectManifest;
 };
 
-function textureKeyForTargetPath(targetPath: string): string | null {
-  return textureKeyForConfigField(targetPath);
+function textureKeyForTargetPath(
+  targetPath: string,
+  templateFields: TemplateFieldDescriptor[],
+): string | null {
+  return textureKeyForConfigField(targetPath, templateFields);
 }
 
 type ImportAssetApiResponse = {
@@ -37,7 +45,11 @@ async function saveProjectAssetViaApi(input: {
 
   const response = await fetch(
     `/api/projects/${encodeURIComponent(input.projectId)}/import-asset`,
-    { method: "POST", body: formData },
+    {
+      method: "POST",
+      headers: await getWebAuthHeaders(),
+      body: formData,
+    },
   );
 
   const data = (await response.json()) as ImportAssetApiResponse;
@@ -59,6 +71,7 @@ export async function saveProjectAssetWithFallback(input: {
   file: File;
   targetPath: string;
   type?: "image" | "audio";
+  templateFields?: TemplateFieldDescriptor[];
 }): Promise<ImportAssetClientResult> {
   const type = input.type ?? "image";
 
@@ -68,7 +81,10 @@ export async function saveProjectAssetWithFallback(input: {
       return {
         relativePath: saved.relativePath,
         absolutePath: saved.absolutePath,
-        textureKey: textureKeyForTargetPath(input.targetPath),
+        textureKey: textureKeyForTargetPath(
+          input.targetPath,
+          input.templateFields ?? [],
+        ),
       };
     } catch (error) {
       if (!(error instanceof AssetWorkspaceSaveError)) {

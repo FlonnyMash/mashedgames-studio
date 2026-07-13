@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { NullableAssetStringSchema } from "./asset-reference";
+import { NullableAssetStringSchema, ProjectRelativePathSchema } from "./asset-reference";
 
 export const AppModeSchema = z.enum(["studio", "configurator"]);
 export type AppMode = z.infer<typeof AppModeSchema>;
@@ -19,9 +19,8 @@ export const GameConfigSchema = z.object({
   themeColor: hexColorSchema,
   backgroundColor: hexColorSchema,
   logoUrl: NullableAssetStringSchema.optional(),
-  playerCatcherUrl: NullableAssetStringSchema.optional(),
-  collectibleGoodUrl: NullableAssetStringSchema.optional(),
-  collectibleBadUrl: NullableAssetStringSchema.optional(),
+  clientName: z.string().optional(),
+  clientLogoPath: ProjectRelativePathSchema.optional(),
   startScreenTitle: z.string(),
   startScreenSubtitle: z.string().optional(),
   ctaLabel: z.string(),
@@ -82,18 +81,15 @@ export const GameConfigSchema = z.object({
   showHighscore: z.boolean().optional(),
   showLeadCapture: z.boolean().optional(),
   showCountdownTimer: z.boolean().optional(),
-  // Catch-game collectibles tuning (optional — ignored by other templates)
-  goodItemPoints: z.number().int().min(0).optional(),
-  badItemPenalty: z.number().int().min(0).optional(),
-  badItemChancePercent: z.number().min(0).max(100).optional(),
-  spawnIntervalMs: z.number().int().min(200).optional(),
-  minSpawnIntervalMs: z.number().int().min(100).optional(),
-  fallSpeedStart: z.number().min(50).optional(),
-  fallSpeedMax: z.number().min(50).optional(),
-  badSpawnIntervalMs: z.number().int().min(200).optional(),
-  badMinSpawnIntervalMs: z.number().int().min(100).optional(),
-  badFallSpeedStart: z.number().min(50).optional(),
-  badFallSpeedMax: z.number().min(50).optional(),
+  /**
+   * Template-specific runtime values. Never add hardcoded per-template keys
+   * to this schema — each template declares its own dynamic field
+   * descriptors in manifest.ts (see template-field-schema.ts), and their
+   * values live here, keyed by TemplateFieldDescriptor.key.
+   */
+  fields: z
+    .record(z.string(), z.union([z.string(), z.number(), z.boolean()]))
+    .default({}),
 });
 
 export type GameConfig = z.infer<typeof GameConfigSchema>;
@@ -157,6 +153,7 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   showHighscore: true,
   showLeadCapture: true,
   showCountdownTimer: true,
+  fields: {},
 };
 
 export function parseGameConfig(data: unknown): GameConfig {
@@ -187,6 +184,19 @@ export function patchConfig(
   partial: Partial<GameConfig>,
 ): GameConfig {
   return { ...config, ...partial };
+}
+
+/**
+ * Patches a single template-specific field inside GameConfig.fields.
+ * Use this instead of patchFlatConfig for any key declared by a template's
+ * own TemplateFieldDescriptor[] (see template-field-schema.ts).
+ */
+export function patchTemplateField(
+  config: GameConfig,
+  key: string,
+  value: string | number | boolean,
+): GameConfig {
+  return { ...config, fields: { ...config.fields, [key]: value } };
 }
 
 export function getPrimaryBrandColor(config: GameConfig): string {

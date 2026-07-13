@@ -1,11 +1,14 @@
 import { ensureWorkspaceExists, templateLibraryRoot } from "@/lib/project-paths";
 import { resolveAssetFilePath } from "@/lib/serve-workspace-asset";
+import { readTemplateFields } from "@/lib/template-fields";
 import {
-  CONFIG_TEXTURE_FIELD_MAP,
+  getDynamicTextureFieldMap,
   GameConfigSchema,
   normalizeGameConfig,
   normalizeTemplateId,
+  UNIVERSAL_TEXTURE_FIELD_MAP,
   type GameConfig,
+  type TemplateFieldDescriptor,
 } from "@mashedgames/shared";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -19,19 +22,26 @@ type RouteContext = { params: Promise<{ templateId: string }> };
 function buildRuntimeAssets(
   templateDir: string,
   config: GameConfig,
+  templateFields: TemplateFieldDescriptor[],
 ): Record<string, string> {
   const runtimeAssets: Record<string, string> = {};
 
-  for (const fieldKey of Object.keys(CONFIG_TEXTURE_FIELD_MAP)) {
-    const assetPath = config[fieldKey as keyof GameConfig];
+  const resolve = (assetPath: unknown) => {
     if (typeof assetPath !== "string" || !assetPath.trim()) {
-      continue;
+      return;
     }
     const relativePath = assetPath.replace(/^\//, "");
     const absolutePath = resolveAssetFilePath(templateDir, relativePath);
     if (absolutePath) {
       runtimeAssets[relativePath] = absolutePath;
     }
+  };
+
+  for (const fieldKey of Object.keys(UNIVERSAL_TEXTURE_FIELD_MAP)) {
+    resolve(config[fieldKey as keyof GameConfig]);
+  }
+  for (const fieldKey of Object.keys(getDynamicTextureFieldMap(templateFields))) {
+    resolve(config.fields?.[fieldKey]);
   }
 
   return runtimeAssets;
@@ -45,6 +55,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const resolvedTemplateId = normalizeTemplateId(templateId);
     const templateDir = path.join(templateLibraryRoot, resolvedTemplateId);
     const configPath = path.join(templateDir, "config.json");
+    const templateFields = readTemplateFields(resolvedTemplateId);
 
     if (!existsSync(configPath)) {
       return Response.json({
@@ -52,6 +63,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
         templateId: resolvedTemplateId,
         config: null,
         runtimeAssets: {},
+        templateFields,
       });
     }
 
@@ -68,7 +80,8 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       ok: true,
       templateId: resolvedTemplateId,
       config,
-      runtimeAssets: buildRuntimeAssets(templateDir, config),
+      runtimeAssets: buildRuntimeAssets(templateDir, config, templateFields),
+      templateFields,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load config.";

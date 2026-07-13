@@ -1,5 +1,6 @@
 "use client";
 
+import { projectFetch } from "@/lib/project-api-client";
 import type { GameProjectManifest, ParentDriftReport } from "@mashedgames/shared";
 import { useConfiguratorStore } from "@mashedgames/configurator-engine";
 import { Loader2 } from "lucide-react";
@@ -27,7 +28,7 @@ export function ParentDriftDialog({
     setAcking(true);
     setError(null);
     try {
-      const response = await fetch(`/api/projects/${projectId}/ack-parent`, {
+      const response = await projectFetch(`/api/projects/${projectId}/ack-parent`, {
         method: "POST",
       });
       const data = (await response.json()) as {

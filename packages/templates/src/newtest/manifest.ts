@@ -1,15 +1,14 @@
 import { type TemplateSchema } from "@mashedgames/shared";
 
-export const testManifest = {
-  templateId: "test",
+export const newtestManifest = {
+  templateId: "newtest",
   version: "1.0.0",
-  displayName: "Test",
+  displayName: "NewTest",
   lockedFields: ["activeTemplateId", "schemaVersion"],
   supportsUI: [],
   supportedEvents: [],
   assetRestrictions: [],
-  meta: {},
-  configFieldHints: {},
+  fields: [],
 } satisfies TemplateSchema;
 
-export type TestManifest = typeof testManifest;
+export type NewtestManifest = typeof newtestManifest;

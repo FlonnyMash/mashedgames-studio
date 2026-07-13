@@ -30,7 +30,7 @@ type TemplateDetailsData = {
 
 function parseManifestField(
   source: string,
-  field: "displayName" | "version",
+  field: "displayName" | "version" | "engineType",
 ): string | null {
   const match = new RegExp(`${field}:\\s*["']([^"']+)["']`).exec(source);
   return match?.[1] ?? null;
@@ -127,6 +127,58 @@ export function resolveTemplateLocation(templateId: string): string {
   return path.join(templateLibraryRoot, normalizeTemplateId(templateId));
 }
 
+function getDirectorySizeBytes(rootPath: string): number {
+  if (!existsSync(rootPath)) return 0;
+
+  let total = 0;
+  const stack = [rootPath];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+
+    let entries;
+    try {
+      entries = readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(current, entry.name);
+      try {
+        if (entry.isDirectory()) {
+          stack.push(fullPath);
+        } else if (entry.isFile()) {
+          total += statSync(fullPath).size;
+        }
+      } catch {
+        /* skip unreadable entries */
+      }
+    }
+  }
+
+  return total;
+}
+
+function resolveDeploymentSizeKb(
+  templateId: string,
+  metaDemoSizeKb?: number,
+): number | undefined {
+  if (
+    typeof metaDemoSizeKb === "number" &&
+    Number.isFinite(metaDemoSizeKb) &&
+    metaDemoSizeKb > 0
+  ) {
+    return Math.round(metaDemoSizeKb);
+  }
+
+  const libraryPath = path.join(templateLibraryRoot, normalizeTemplateId(templateId));
+  const bytes = getDirectorySizeBytes(libraryPath);
+  if (bytes <= 0) return undefined;
+  return Math.max(1, Math.round(bytes / 1024));
+}
+
 /**
  * Enumerate templates by scanning packages/templates/src/ (engineTemplatesRoot).
  * Each subdirectory with a manifest.ts is treated as a template entry.
@@ -136,7 +188,10 @@ export function listTemplateOverviewFromDisk(): Array<{
   id: string;
   displayName: string;
   status: TemplateManifestStatus;
+  version: string;
   description?: string;
+  engineType?: string;
+  deploymentSizeKb?: number;
   thumbnailUrl?: string;
   previewUrls?: string[];
   tutorial?: string;
@@ -155,7 +210,10 @@ export function listTemplateOverviewFromDisk(): Array<{
     id: string;
     displayName: string;
     status: TemplateManifestStatus;
+    version: string;
     description?: string;
+    engineType?: string;
+    deploymentSizeKb?: number;
     thumbnailUrl?: string;
     previewUrls?: string[];
     tutorial?: string;
@@ -178,11 +236,14 @@ export function listTemplateOverviewFromDisk(): Array<{
     if (!manifestTs) {
       const fallbackName = readConfigJsonDisplayName(templateId);
       if (fallbackName === null) continue;
+      const studioMeta = readTemplateStudioMeta(templateId);
       results.push({
         id: templateId,
         displayName: fallbackName,
         status: "draft",
+        version: studioMeta.version,
         description: meta.description || undefined,
+        deploymentSizeKb: resolveDeploymentSizeKb(templateId, meta.demo_size_kb),
         thumbnailUrl,
         previewUrls,
         tutorial: meta.tutorial || undefined,
@@ -193,12 +254,20 @@ export function listTemplateOverviewFromDisk(): Array<{
     const displayName =
       parseManifestField(manifestTs, "displayName") ??
       templateId.replace(/-/g, " ");
+    const version =
+      parseManifestField(manifestTs, "version") ??
+      readTemplateStudioMeta(templateId).version;
+    const engineType =
+      parseManifestField(manifestTs, "engineType") ?? undefined;
 
     results.push({
       id: templateId,
       displayName,
       status: "published",
+      version,
       description: meta.description || undefined,
+      engineType,
+      deploymentSizeKb: resolveDeploymentSizeKb(templateId, meta.demo_size_kb),
       thumbnailUrl,
       previewUrls,
       tutorial: meta.tutorial || undefined,

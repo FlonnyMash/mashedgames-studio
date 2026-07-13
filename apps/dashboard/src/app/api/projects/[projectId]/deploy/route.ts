@@ -1,4 +1,5 @@
 import { loadProject } from "@/lib/project-io";
+import { resolveProjectOwnerContext } from "@/lib/project-owner-context";
 import { PROJECT_FILES, resolveProjectDir } from "@/lib/project-paths";
 import { exportTemplateToDirectory } from "@/lib/template-export";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -30,7 +31,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
   let tempDir: string | null = null;
 
   try {
-    const loaded = await loadProject(projectId);
+    const ownerContext = await resolveProjectOwnerContext(request);
+    const loaded = await loadProject(projectId, ownerContext);
     if (!loaded.ok) {
       return Response.json(
         { ok: false, error: loaded.error },

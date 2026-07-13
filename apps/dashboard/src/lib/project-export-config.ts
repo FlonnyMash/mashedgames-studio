@@ -4,6 +4,7 @@ import {
   type GameConfig,
 } from "@mashedgames/shared";
 import { loadProject } from "@/lib/project-io";
+import type { ProjectOwnerContext } from "@/lib/project-owner-context";
 
 export function buildProjectExportConfigJsonFromConfig(config: GameConfig): string {
   return JSON.stringify(
@@ -16,11 +17,14 @@ export function buildProjectExportConfigJsonFromConfig(config: GameConfig): stri
   );
 }
 
-export async function buildProjectExportConfigJson(projectId: string): Promise<
+export async function buildProjectExportConfigJson(
+  projectId: string,
+  ownerContext?: ProjectOwnerContext | null,
+): Promise<
   | { ok: true; configJson: string }
   | { ok: false; error: string; status: number }
 > {
-  const loaded = await loadProject(projectId);
+  const loaded = await loadProject(projectId, ownerContext);
   if (!loaded.ok) {
     return loaded;
   }

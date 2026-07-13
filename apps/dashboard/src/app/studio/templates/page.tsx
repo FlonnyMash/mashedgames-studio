@@ -47,6 +47,7 @@ export default function StudioTemplatesPage() {
         id: template.id,
         displayName: template.label,
         status: "published" as const,
+        version: "1.0.0",
       })),
     [catalogRefreshKey],
   );

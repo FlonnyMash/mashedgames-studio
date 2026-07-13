@@ -3,6 +3,7 @@
 import { ConfiguratorToolsShell } from "@/components/configurator/ConfiguratorToolsShell";
 import { CenterWorkspace } from "@/components/shell/CenterWorkspace";
 import { applyAssetUploadToPreview } from "@/lib/apply-asset-upload-to-preview";
+import { projectFetch } from "@/lib/project-api-client";
 import { saveProjectClientNow } from "@/hooks/useSaveGameProject";
 import { saveProjectAssetWithFallback } from "@/lib/import-project-asset-client";
 import { useMenuActionsStore } from "@/lib/menu-actions-store";
@@ -16,6 +17,7 @@ import type {
   ClientProjectPayload,
   GameConfig,
   GameProjectManifest,
+  TemplateFieldDescriptor,
 } from "@mashedgames/shared";
 import {
   ConfiguratorSidebar,
@@ -36,6 +38,7 @@ export function ConfiguratorWorkspace({
   const setAssetSaveHandler = useConfiguratorStore(
     (state) => state.setAssetSaveHandler,
   );
+  const templateFields = usePreviewBridgeStore((state) => state.templateFields);
 
   // Sync configurator state into the preview config store.
   useEffect(() => {
@@ -61,6 +64,7 @@ export function ConfiguratorWorkspace({
         projectId: input.projectId,
         file: input.file,
         targetPath: input.fieldKey,
+        templateFields: usePreviewBridgeStore.getState().templateFields,
       });
 
       if (data.manifest?.runtimeAssets) {
@@ -101,7 +105,7 @@ export function ConfiguratorWorkspace({
     const id = useConfiguratorStore.getState().projectId;
     if (!id) return;
 
-    const res = await fetch(`/api/projects/${id}`);
+    const res = await projectFetch(`/api/projects/${id}`);
     const data = (await res.json()) as {
       ok?: boolean;
       error?: string;
@@ -109,11 +113,14 @@ export function ConfiguratorWorkspace({
       config?: GameConfig;
       client?: ClientProjectPayload;
       runtimeAssets?: Record<string, string>;
+      templateFields?: TemplateFieldDescriptor[];
     };
 
     if (!res.ok || !data.ok || !data.manifest || !data.config || !data.client) {
       throw new Error(data.error ?? "Revert failed.");
     }
+
+    usePreviewBridgeStore.getState().setTemplateFields(data.templateFields ?? []);
 
     useConfiguratorStore.getState().hydrateProject({
       manifest: data.manifest,
@@ -167,7 +174,7 @@ export function ConfiguratorWorkspace({
         initialTemplateId={initialTemplateId}
         previewSuspended={suspended}
       />
-      <ConfiguratorSidebar />
+      <ConfiguratorSidebar templateFields={templateFields} />
     </div>
   );
 }

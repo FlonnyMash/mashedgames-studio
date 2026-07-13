@@ -1,3 +1,11 @@
+import type { ProjectOwnerContext } from "@/lib/project-owner-context";
+import {
+  migrateClientBrandingAssets,
+  persistBufferToProjectAssets,
+  persistClientLogoToProjectAssets,
+  setFlatConfigField,
+} from "@/lib/project-assets";
+import { isWorkspaceDesktop } from "@/lib/runtime-env";
 import {
   BASELINE_TEMPLATE_ID,
   buildInitialClientPayload,
@@ -5,25 +13,26 @@ import {
   ClientProjectPayloadSchema,
   DEFAULT_GAME_CONFIG,
   GameProjectManifestSchema,
+  isLegacyProjectManifest,
+  isUniversalTextureField,
   ParentLockSnapshotSchema,
   PROJECT_ID_PATTERN,
   SaveModeSchema,
+  signProjectPayload,
   slugifyProjectId,
   normalizeTemplateId,
   isLegacyTemplateId,
+  UnauthorizedProjectAccessError,
+  assertProjectOwnership,
+  patchTemplateField,
   type ClientProjectPayload,
   type GameConfig,
+  type GameProjectManifest,
   type GameTemplateId,
   type ParentLockSnapshot,
   type SaveMode,
   textureKeyForConfigField,
 } from "@mashedgames/shared";
-import {
-  migrateClientBrandingAssets,
-  persistBufferToProjectAssets,
-  setFlatConfigField,
-} from "@/lib/project-assets";
-import { isWorkspaceDesktop } from "@/lib/runtime-env";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
@@ -39,6 +48,7 @@ import {
   isParentTemplateInLibrary,
   readParentManifest,
 } from "@/lib/project-parent-config";
+import { readTemplateFields } from "@/lib/template-fields";
 
 export type ProjectIoResult<T> =
   | { ok: true; data: T }
@@ -46,6 +56,96 @@ export type ProjectIoResult<T> =
 
 async function writeJson(filePath: string, data: unknown): Promise<void> {
   await writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+function projectIoFailure(error: unknown, fallback: string): ProjectIoResult<never> {
+  if (error instanceof UnauthorizedProjectAccessError) {
+    return { ok: false, error: error.message, status: 403 };
+  }
+  const message = error instanceof Error ? error.message : fallback;
+  return { ok: false, error: message, status: 500 };
+}
+
+async function stampManifestOwnership(
+  manifest: GameProjectManifest,
+  client: ClientProjectPayload,
+  ownerId: string,
+): Promise<GameProjectManifest> {
+  const signature = await signProjectPayload(client, ownerId);
+  return { ...manifest, ownerId, signature };
+}
+
+async function tryPersistClaimedManifest(
+  manifestPath: string,
+  manifest: GameProjectManifest,
+  projectId: string,
+): Promise<void> {
+  try {
+    await writeJson(manifestPath, manifest);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[project-io] Auto-claim persist failed for project "${projectId}": ${message}`,
+    );
+  }
+}
+
+async function resolveProjectOwnership(
+  manifest: GameProjectManifest,
+  client: ClientProjectPayload,
+  manifestPath: string,
+  ownerContext?: ProjectOwnerContext | null,
+): Promise<GameProjectManifest> {
+  if (isLegacyProjectManifest(manifest)) {
+    if (ownerContext?.role === "studio_admin") {
+      return manifest;
+    }
+    if (ownerContext?.ownerId && ownerContext.role === "b2b_user") {
+      const claimed = await stampManifestOwnership(
+        manifest,
+        client,
+        ownerContext.ownerId,
+      );
+      await tryPersistClaimedManifest(manifestPath, claimed, manifest.projectId);
+      return claimed;
+    }
+    return manifest;
+  }
+
+  if (!manifest.ownerId || !manifest.signature) {
+    throw new UnauthorizedProjectAccessError(
+      "Project is missing ownership credentials.",
+    );
+  }
+
+  if (!ownerContext?.ownerId) {
+    throw new UnauthorizedProjectAccessError("Authentication required.");
+  }
+
+  await assertProjectOwnership(manifest, client, ownerContext.ownerId);
+  return manifest;
+}
+
+function assertSaveOwnership(
+  manifest: GameProjectManifest,
+  ownerContext?: ProjectOwnerContext | null,
+): void {
+  if (isLegacyProjectManifest(manifest)) {
+    if (ownerContext?.role === "b2b_user" && !ownerContext.ownerId) {
+      throw new UnauthorizedProjectAccessError("Authentication required.");
+    }
+    return;
+  }
+
+  if (!ownerContext?.ownerId) {
+    throw new UnauthorizedProjectAccessError("Authentication required.");
+  }
+
+  if (manifest.ownerId !== ownerContext.ownerId) {
+    throw new UnauthorizedProjectAccessError(
+      "Project belongs to a different user.",
+    );
+  }
 }
 
 function buildParentLockSnapshot(
@@ -116,9 +216,12 @@ export async function listProjectIds(
   return ids.sort();
 }
 
-export async function getProjectDetails(projectId: string): Promise<
+export async function getProjectDetails(
+  projectId: string,
+  ownerContext?: ProjectOwnerContext | null,
+): Promise<
   ProjectIoResult<{
-    manifest: import("@mashedgames/shared").GameProjectManifest;
+    manifest: GameProjectManifest;
     repositoryPath: string;
     directoryPath: string;
     updatedAt: string;
@@ -129,7 +232,7 @@ export async function getProjectDetails(projectId: string): Promise<
     return { ok: false, error: location.error, status: location.status };
   }
 
-  const loaded = await loadProject(projectId);
+  const loaded = await loadProject(projectId, ownerContext);
   if (!loaded.ok) {
     return loaded;
   }
@@ -156,7 +259,8 @@ export async function getProjectDetails(projectId: string): Promise<
 export async function patchProjectDisplayName(
   projectId: string,
   displayName: string,
-): Promise<ProjectIoResult<{ manifest: import("@mashedgames/shared").GameProjectManifest }>> {
+  ownerContext?: ProjectOwnerContext | null,
+): Promise<ProjectIoResult<{ manifest: GameProjectManifest }>> {
   const trimmed = displayName.trim();
   if (!trimmed) {
     return { ok: false, error: "Display name is required.", status: 400 };
@@ -176,17 +280,33 @@ export async function patchProjectDisplayName(
       return { ok: false, error: "Invalid project.json.", status: 500 };
     }
 
-    const manifest = {
+    const clientRaw = JSON.parse(
+      await readFile(path.join(projectDir, PROJECT_FILES.client), "utf8"),
+    );
+    const clientParsed = ClientProjectPayloadSchema.safeParse(clientRaw);
+    if (!clientParsed.success) {
+      return { ok: false, error: "Invalid client.json.", status: 500 };
+    }
+
+    let manifest = {
       ...manifestParsed.data,
       displayName: trimmed,
     };
 
+    assertSaveOwnership(manifest, ownerContext);
+
+    if (!isLegacyProjectManifest(manifest) && ownerContext?.ownerId) {
+      manifest = await stampManifestOwnership(
+        manifest,
+        clientParsed.data,
+        ownerContext.ownerId,
+      );
+    }
+
     await writeJson(manifestPath, manifest);
     return { ok: true, data: { manifest } };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to update project.";
-    return { ok: false, error: message, status: 500 };
+    return projectIoFailure(error, "Failed to update project.");
   }
 }
 
@@ -194,9 +314,12 @@ export async function createProject(input: {
   displayName: string;
   parentTemplateId: GameTemplateId;
   projectId?: string;
+  clientName?: string;
+  clientLogo?: { buffer: Buffer; fileName: string };
+  ownerId: string;
 }): Promise<
   ProjectIoResult<{
-    manifest: import("@mashedgames/shared").GameProjectManifest;
+    manifest: GameProjectManifest;
     client: ClientProjectPayload;
   }>
 > {
@@ -258,7 +381,33 @@ export async function createProject(input: {
   }
 
   const now = new Date().toISOString();
-  const projectManifest = {
+  let runtimeAssets: Record<string, string> | undefined;
+
+  let client = buildInitialClientPayload(
+    { projectId, parentTemplateId },
+    parentConfig,
+    manifest.version,
+  );
+
+  const trimmedClientName = input.clientName?.trim();
+  if (trimmedClientName) {
+    client = { ...client, clientName: trimmedClientName };
+  }
+
+  const projectDir = resolveProjectDir(projectId);
+  await mkdir(path.join(projectDir, PROJECT_FILES.assetsDir), { recursive: true });
+
+  if (input.clientLogo) {
+    const { relativePath, absolutePath } = await persistClientLogoToProjectAssets(
+      projectId,
+      input.clientLogo.buffer,
+      input.clientLogo.fileName,
+    );
+    client = { ...client, clientLogoPath: relativePath };
+    runtimeAssets = { [relativePath]: absolutePath };
+  }
+
+  let projectManifest: GameProjectManifest = {
     projectId,
     displayName: input.displayName.trim(),
     parentTemplateId,
@@ -267,16 +416,15 @@ export async function createProject(input: {
     lastParentAckAt: now,
     createdAt: now,
     mode: "configurator" as SaveMode,
+    ...(runtimeAssets ? { runtimeAssets } : {}),
   };
 
-  const client = buildInitialClientPayload(
+  projectManifest = await stampManifestOwnership(
     projectManifest,
-    parentConfig,
-    manifest.version,
+    client,
+    input.ownerId,
   );
 
-  const projectDir = resolveProjectDir(projectId);
-  await mkdir(path.join(projectDir, PROJECT_FILES.assetsDir), { recursive: true });
   await writeJson(path.join(projectDir, PROJECT_FILES.manifest), projectManifest);
   await writeJson(path.join(projectDir, PROJECT_FILES.client), client);
   await writeJson(
@@ -287,13 +435,17 @@ export async function createProject(input: {
   return { ok: true, data: { manifest: projectManifest, client } };
 }
 
-export async function loadProject(projectId: string): Promise<
+export async function loadProject(
+  projectId: string,
+  ownerContext?: ProjectOwnerContext | null,
+): Promise<
   ProjectIoResult<{
-    manifest: import("@mashedgames/shared").GameProjectManifest;
+    manifest: GameProjectManifest;
     client: ClientProjectPayload;
     config: GameConfig;
     parentLock: ParentLockSnapshot | null;
     runtimeAssets: Record<string, string>;
+    templateFields: ReturnType<typeof readTemplateFields>;
   }>
 > {
   try {
@@ -303,9 +455,8 @@ export async function loadProject(projectId: string): Promise<
       return { ok: false, error: `Project "${projectId}" not found.`, status: 404 };
     }
 
-    const manifestRaw = JSON.parse(
-      await readFile(path.join(projectDir, PROJECT_FILES.manifest), "utf8"),
-    );
+    const manifestPath = path.join(projectDir, PROJECT_FILES.manifest);
+    const manifestRaw = JSON.parse(await readFile(manifestPath, "utf8"));
     const manifestParsed = GameProjectManifestSchema.safeParse(manifestRaw);
     if (!manifestParsed.success) {
       return { ok: false, error: "Invalid project.json.", status: 500 };
@@ -319,7 +470,7 @@ export async function loadProject(projectId: string): Promise<
         `[project-io] Project "${projectId}" uses legacy template "${manifest.parentTemplateId}", falling back to "${resolvedParentTemplateId}"`,
       );
     }
-    const normalizedManifest = {
+    let normalizedManifest: GameProjectManifest = {
       ...manifest,
       parentTemplateId: resolvedParentTemplateId,
     };
@@ -332,6 +483,13 @@ export async function loadProject(projectId: string): Promise<
       return { ok: false, error: "Invalid client.json.", status: 500 };
     }
     const client = clientParsed.data;
+
+    normalizedManifest = await resolveProjectOwnership(
+      normalizedManifest,
+      client,
+      manifestPath,
+      ownerContext,
+    );
 
     const config = buildProjectConfigFromClient(
       client,
@@ -355,13 +513,12 @@ export async function loadProject(projectId: string): Promise<
         client,
         config,
         parentLock,
-        runtimeAssets: manifest.runtimeAssets ?? {},
+        runtimeAssets: normalizedManifest.runtimeAssets ?? {},
+        templateFields: readTemplateFields(normalizedManifest.parentTemplateId),
       },
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to load project.";
-    return { ok: false, error: message, status: 500 };
+    return projectIoFailure(error, "Failed to load project.");
   }
 }
 
@@ -369,13 +526,14 @@ export async function importProjectAsset(
   projectId: string,
   targetPath: string,
   input: { fileName: string; buffer: Buffer },
+  ownerContext?: ProjectOwnerContext | null,
 ): Promise<
   ProjectIoResult<{
     relativePath: string;
     absolutePath: string;
     textureKey: string | null;
     client: ClientProjectPayload;
-    manifest: import("@mashedgames/shared").GameProjectManifest;
+    manifest: GameProjectManifest;
   }>
 > {
   try {
@@ -385,9 +543,8 @@ export async function importProjectAsset(
       return { ok: false, error: `Project "${projectId}" not found.`, status: 404 };
     }
 
-    const manifestRaw = JSON.parse(
-      await readFile(path.join(projectDir, PROJECT_FILES.manifest), "utf8"),
-    );
+    const manifestPath = path.join(projectDir, PROJECT_FILES.manifest);
+    const manifestRaw = JSON.parse(await readFile(manifestPath, "utf8"));
     const manifestParsed = GameProjectManifestSchema.safeParse(manifestRaw);
     if (!manifestParsed.success) {
       return { ok: false, error: "Invalid project.json.", status: 500 };
@@ -401,48 +558,61 @@ export async function importProjectAsset(
       return { ok: false, error: "Invalid client.json.", status: 500 };
     }
 
+    assertSaveOwnership(manifestParsed.data, ownerContext);
+
     const { relativePath, absolutePath } = await persistBufferToProjectAssets(
       projectId,
       input.buffer,
       input.fileName,
     );
 
-    const fieldKey = targetPath as keyof GameConfig;
-    const client = setFlatConfigField(clientParsed.data, fieldKey, relativePath);
+    const templateFields = readTemplateFields(
+      normalizeTemplateId(manifestParsed.data.parentTemplateId),
+    );
+    const client = isUniversalTextureField(targetPath)
+      ? setFlatConfigField(
+          clientParsed.data,
+          targetPath as keyof GameConfig,
+          relativePath,
+        )
+      : patchTemplateField(clientParsed.data, targetPath, relativePath);
 
     const runtimeAssets = {
       ...(manifestParsed.data.runtimeAssets ?? {}),
       [relativePath]: absolutePath,
     };
 
-    const manifest = {
+    let manifest: GameProjectManifest = {
       ...manifestParsed.data,
       runtimeAssets,
     };
 
+    if (ownerContext?.ownerId) {
+      manifest = await stampManifestOwnership(manifest, client, ownerContext.ownerId);
+    }
+
     await writeJson(path.join(projectDir, PROJECT_FILES.client), client);
-    await writeJson(path.join(projectDir, PROJECT_FILES.manifest), manifest);
+    await writeJson(manifestPath, manifest);
 
     return {
       ok: true,
       data: {
         relativePath,
         absolutePath,
-        textureKey: textureKeyForConfigField(targetPath),
+        textureKey: textureKeyForConfigField(targetPath, templateFields),
         client,
         manifest,
       },
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to import asset.";
-    return { ok: false, error: message, status: 500 };
+    return projectIoFailure(error, "Failed to import asset.");
   }
 }
 
 export async function saveProjectClient(
   projectId: string,
   client: ClientProjectPayload,
+  ownerContext?: ProjectOwnerContext | null,
 ): Promise<ProjectIoResult<{ projectId: string }>> {
   try {
     ensureWorkspaceExists();
@@ -456,18 +626,19 @@ export async function saveProjectClient(
       return { ok: false, error: "Invalid client payload.", status: 400 };
     }
 
+    const manifestPath = path.join(projectDir, PROJECT_FILES.manifest);
+    const manifestRaw = JSON.parse(await readFile(manifestPath, "utf8"));
+    const manifestParsed = GameProjectManifestSchema.safeParse(manifestRaw);
+    if (!manifestParsed.success) {
+      return { ok: false, error: "Invalid project.json.", status: 500 };
+    }
+
+    assertSaveOwnership(manifestParsed.data, ownerContext);
+
     let clientToSave = parsed.data;
-    let manifestUpdate: import("@mashedgames/shared").GameProjectManifest | null = null;
+    let manifestUpdate: GameProjectManifest = { ...manifestParsed.data };
 
     if (isWorkspaceDesktop()) {
-      const manifestRaw = JSON.parse(
-        await readFile(path.join(projectDir, PROJECT_FILES.manifest), "utf8"),
-      );
-      const manifestParsed = GameProjectManifestSchema.safeParse(manifestRaw);
-      if (!manifestParsed.success) {
-        return { ok: false, error: "Invalid project.json.", status: 500 };
-      }
-
       const migrated = await migrateClientBrandingAssets(
         projectId,
         parsed.data,
@@ -475,53 +646,70 @@ export async function saveProjectClient(
       );
 
       clientToSave = migrated.branding;
-
       manifestUpdate = {
-        ...manifestParsed.data,
+        ...manifestUpdate,
         runtimeAssets: migrated.runtimeAssets,
       };
     }
 
-    await writeJson(path.join(projectDir, PROJECT_FILES.client), clientToSave);
-    if (manifestUpdate) {
-      await writeJson(
-        path.join(projectDir, PROJECT_FILES.manifest),
+    if (ownerContext?.ownerId) {
+      manifestUpdate = await stampManifestOwnership(
         manifestUpdate,
+        clientToSave,
+        ownerContext.ownerId,
       );
+    } else if (isLegacyProjectManifest(manifestUpdate)) {
+      // Legacy unsigned project saved without auth — allowed for local dev.
+    } else {
+      throw new UnauthorizedProjectAccessError("Authentication required.");
     }
+
+    await writeJson(path.join(projectDir, PROJECT_FILES.client), clientToSave);
+    await writeJson(manifestPath, manifestUpdate);
 
     return { ok: true, data: { projectId } };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to save project.";
-    return { ok: false, error: message, status: 500 };
+    return projectIoFailure(error, "Failed to save project.");
   }
 }
 
-export async function ackParentLock(projectId: string): Promise<
+export async function ackParentLock(
+  projectId: string,
+  ownerContext?: ProjectOwnerContext | null,
+): Promise<
   ProjectIoResult<{
-    manifest: import("@mashedgames/shared").GameProjectManifest;
+    manifest: GameProjectManifest;
     parentLock: ParentLockSnapshot;
   }>
 > {
   try {
     ensureWorkspaceExists();
-    const loaded = await loadProject(projectId);
+    const loaded = await loadProject(projectId, ownerContext);
     if (!loaded.ok) {
       return loaded;
     }
 
-    const { manifest } = loaded.data;
+    const { manifest, client } = loaded.data;
     const { manifest: parentManifest, config: liveParent } = buildLiveParentConfig(
       manifest.parentTemplateId,
     );
     const now = new Date().toISOString();
-    const updatedManifest = {
+    let updatedManifest: GameProjectManifest = {
       ...manifest,
       parentVersion: parentManifest.version,
       parentSchemaVersion: liveParent.schemaVersion,
       lastParentAckAt: now,
     };
+
+    assertSaveOwnership(updatedManifest, ownerContext);
+
+    if (ownerContext?.ownerId) {
+      updatedManifest = await stampManifestOwnership(
+        updatedManifest,
+        client,
+        ownerContext.ownerId,
+      );
+    }
 
     const parentLock = buildParentLockSnapshot(
       manifest.parentTemplateId,
@@ -535,9 +723,7 @@ export async function ackParentLock(projectId: string): Promise<
 
     return { ok: true, data: { manifest: updatedManifest, parentLock } };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to acknowledge parent.";
-    return { ok: false, error: message, status: 500 };
+    return projectIoFailure(error, "Failed to acknowledge parent.");
   }
 }
 

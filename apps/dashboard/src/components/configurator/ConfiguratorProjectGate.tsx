@@ -1,12 +1,14 @@
 "use client";
 
 import { ParentDriftDialog } from "@/components/configurator/ParentDriftDialog";
+import { projectFetch } from "@/lib/project-api-client";
 import { useConfiguratorStore } from "@mashedgames/configurator-engine";
 import type {
   ClientProjectPayload,
   GameConfig,
   GameProjectManifest,
   ParentDriftReport,
+  TemplateFieldDescriptor,
 } from "@mashedgames/shared";
 import { FlaskConical, Loader2, LogOut } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -109,6 +111,7 @@ export function ConfiguratorProjectGate({
           error?: string;
           config?: GameConfig;
           runtimeAssets?: Record<string, string>;
+          templateFields?: TemplateFieldDescriptor[];
         };
 
         if (!res.ok || !data.ok) {
@@ -116,6 +119,10 @@ export function ConfiguratorProjectGate({
         }
 
         if (cancelled) return;
+
+        usePreviewBridgeStore
+          .getState()
+          .setTemplateFields(data.templateFields ?? []);
 
         if (data.config) {
           useConfiguratorStore
@@ -183,7 +190,7 @@ export function ConfiguratorProjectGate({
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/api/projects/${effectiveProjectId}`);
+        const response = await projectFetch(`/api/projects/${effectiveProjectId}`);
         const data = (await response.json()) as {
           ok?: boolean;
           error?: string;
@@ -191,6 +198,7 @@ export function ConfiguratorProjectGate({
           config?: GameConfig;
           client?: ClientProjectPayload;
           runtimeAssets?: Record<string, string>;
+          templateFields?: TemplateFieldDescriptor[];
         };
 
         if (!response.ok || !data.ok || !data.manifest || !data.config || !data.client) {
@@ -198,6 +206,10 @@ export function ConfiguratorProjectGate({
         }
 
         if (cancelled) return;
+
+        usePreviewBridgeStore
+          .getState()
+          .setTemplateFields(data.templateFields ?? []);
 
         useConfiguratorStore.getState().hydrateProject({
           manifest: data.manifest,
@@ -211,7 +223,7 @@ export function ConfiguratorProjectGate({
         pushRuntimeAssetsToPreview();
         pushConfigAssetsToPreview(data.client);
 
-        const driftResponse = await fetch(
+        const driftResponse = await projectFetch(
           `/api/projects/${effectiveProjectId}/parent-drift`,
         );
         const driftData = (await driftResponse.json()) as {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { GameLifecycleEventTypeSchema } from "./game-events";
 import { TemplateControlsSchema } from "./template-metadata-schema";
+import { TemplateFieldDescriptorSchema } from "./template-field-schema";
 
 // ---------------------------------------------------------------------------
 // UI Modules
@@ -57,36 +58,15 @@ export const AssetRestrictionSchema = z.object({
 export type AssetRestriction = z.infer<typeof AssetRestrictionSchema>;
 
 // ---------------------------------------------------------------------------
-// Config field hints
-//
-// Allows a template manifest to annotate meta keys (or future GameConfig
-// extensions) with a UI rendering hint. The FlatConfigPanel uses these
-// hints to render the appropriate control for each field when a template
-// is active. Values map to FlatFieldType in flat-field-registry.ts.
-// ---------------------------------------------------------------------------
-
-export const ConfigFieldHintSchema = z.enum([
-  "color",
-  "toggle",
-  "text",
-  "number",
-  "image",
-  "slider",
-]);
-
-export type ConfigFieldHint = z.infer<typeof ConfigFieldHintSchema>;
-
-// ---------------------------------------------------------------------------
 // Template schema
 //
 // Authoring-time metadata that describes what a template supports and
 // what configurators are permitted to change. This is NOT the runtime
 // GameConfig — it is never sent to the game engine directly.
 //
-// Flat-config law: meta is the only dynamic field and it accepts flat
-// primitives only (string | number | boolean). No nested objects, no
-// .passthrough(). Future features such as localizer key injection and
-// A/B experiment flags use the meta record.
+// Flat-config law: `fields` is the only dynamic section and each descriptor
+// resolves to a flat primitive (string | number | boolean) at runtime. No
+// nested objects, no .passthrough().
 // ---------------------------------------------------------------------------
 
 export const TemplateSchemaSchema = z.object({
@@ -124,28 +104,18 @@ export const TemplateSchemaSchema = z.object({
   assetRestrictions: z.array(AssetRestrictionSchema),
 
   /**
-   * Extensible flat key-value store.
-   * Use for: localizer key overrides, A/B experiment flags, future feature
-   * toggles. Values are primitives only — no nested objects.
+   * The template's dynamic, template-specific runtime fields. This is the
+   * ONLY place a template declares its mechanics — the global GameConfig
+   * schema never gains hardcoded per-template keys. Each descriptor is
+   * self-describing (type/label/min/max/step/default), which is enough for
+   * the Configurator/Studio UI to render the right control automatically
+   * and for the runtime to validate GameConfig.fields against it.
    *
-   * Examples:
-   *   { "locale.startButton": "Speel nu!", "experiment.doubleScore": true }
+   * Example:
+   *   [{ key: "gravity", type: "slider", label: "Gravity", min: 0, max: 100,
+   *      default: 50 }]
    */
-  meta: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
-
-  /**
-   * Optional UI rendering hints for meta fields.
-   * Maps a meta key to a FlatFieldType hint so the sidebar can render the
-   * correct control. Only meta keys that need a non-text control require an
-   * entry here; all other meta keys default to "text".
-   *
-   * Examples:
-   *   { "catchZoneColor": "color", "showWinAnimation": "toggle" }
-   */
-  configFieldHints: z
-    .record(z.string(), ConfigFieldHintSchema)
-    .optional()
-    .default({}),
+  fields: z.array(TemplateFieldDescriptorSchema).default([]),
 
   // ---------------------------------------------------------------------------
   // Storefront / tutorial metadata

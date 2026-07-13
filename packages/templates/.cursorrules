@@ -52,7 +52,11 @@ Every template directory MUST have a `manifest.ts` that exports a `satisfies Tem
 The manifest MUST explicitly declare all four required fields — no silent omissions:
 
 ```typescript
-import { type TemplateSchema } from '@mashedgames/shared';
+import { type TemplateSchema, type TemplateFieldDescriptor } from '@mashedgames/shared';
+
+const myGameFields: TemplateFieldDescriptor[] = [
+  // { key, type, label, group?, min?, max?, step?, default, textureKey? }
+];
 
 export const myGameManifest = {
   templateId:       '<template-id>',    // must match directory name
@@ -62,7 +66,8 @@ export const myGameManifest = {
   supportsUI:       [...],              // UIModule values from @mashedgames/shared
   supportedEvents:  [...],             // GameLifecycleEventType values from @mashedgames/shared
   assetRestrictions: [...],            // at least one entry if sprites are replaceable
-  meta:             {},                // flat primitives only — string | number | boolean
+  fields:           myGameFields,      // TemplateFieldDescriptor[] — the ONLY source of
+                                        // per-template config keys, defaults, and UI metadata
 } satisfies TemplateSchema;
 ```
 
@@ -87,10 +92,15 @@ All user-facing UI (scores, start screens, lead capture, highscore boards) lives
 
 ## Config Schema Law
 
-- `GameConfig` is flat: top-level primitive keys only.
+- `GameConfig` is flat: top-level primitive keys only, plus one generic bucket — `fields: Record<string, string | number | boolean>`.
 - Do NOT add nested objects, arrays, or `.passthrough()` to `GameConfig`.
-- Template-specific configuration extensions go in the `meta` field of `TemplateSchema` (flat primitives only).
-- If you need a new `GameConfig` field, raise it for the Lead Architect.
+- NEVER add a new hardcoded top-level key to `GameConfig` for template-specific tuning or assets.
+  Declare it as a `TemplateFieldDescriptor` in your manifest's `fields` array instead — this is the
+  single source of truth for the field's Zod validation, default value, and dynamic Configurator/Studio UI.
+- At runtime your scene reads these values from `config.fields.<key>`, never from a top-level `config.<key>`.
+- `type: "image"` fields MUST declare a `textureKey` matching an entry in `assetRestrictions`.
+- If you need a new universal (template-agnostic) `GameConfig` field — e.g. something every template's
+  DOM overlay would use — raise it for the Lead Architect instead of adding it yourself.
 
 ---
 
@@ -116,3 +126,4 @@ ON_LEVEL_COMPLETE | ON_LIFE_LOST | ON_COMBO_UPDATE | ON_TIMER_UPDATE
 3. Does Phaser render any UI text or DOM elements? If yes, STOP and refactor.
 4. Are there any `../` relative imports escaping the template directory? If yes, STOP.
 5. Is `GameConfig` still flat after your changes? If not, STOP.
+6. Did you add a new hardcoded key to `GameConfig` instead of a `TemplateFieldDescriptor` in `fields`? If yes, STOP and refactor.

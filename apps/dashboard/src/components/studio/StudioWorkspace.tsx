@@ -13,12 +13,14 @@ import {
 import { useConfigStore } from "@/store/useConfigStore";
 import {
   BASELINE_TEMPLATE_ID,
+  isUniversalTextureField,
   normalizeTemplateId,
   type FlatFieldDefinition,
+  type TemplateFieldDescriptor,
 } from "@mashedgames/shared";
 import { StudioSidebar, useStudioConfigStore } from "@mashedgames/studio-engine";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) {
@@ -27,6 +29,7 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
   const selectedTemplateId = useStudioConfigStore(
     (state) => state.selectedTemplateId,
   );
+  const [templateFields, setTemplateFields] = useState<TemplateFieldDescriptor[]>([]);
 
   useEffect(() => {
     const studioState = useStudioConfigStore.getState();
@@ -85,6 +88,7 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
       error?: string;
       config?: ReturnType<typeof useStudioConfigStore.getState>["config"];
       runtimeAssets?: Record<string, string>;
+      templateFields?: TemplateFieldDescriptor[];
     };
     if (!res.ok || !data.ok) {
       throw new Error(data.error ?? "Revert failed.");
@@ -92,6 +96,8 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
     if (data.config) {
       useStudioConfigStore.getState().hydrateConfig(data.config);
     }
+    setTemplateFields(data.templateFields ?? []);
+    usePreviewBridgeStore.getState().setTemplateFields(data.templateFields ?? []);
     if (data.runtimeAssets) {
       usePreviewBridgeStore.getState().setRuntimeAssets(data.runtimeAssets);
       pushRuntimeAssetsToPreview();
@@ -146,6 +152,32 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
     [selectedTemplateId],
   );
 
+  const handleTemplateImageFile = useCallback(
+    async (file: File, field: TemplateFieldDescriptor) => {
+      try {
+        const data = await saveTemplateAssetWithFallback({
+          templateId: selectedTemplateId,
+          file,
+          targetPath: field.key,
+        });
+
+        applyAssetUploadToPreview(data);
+        if (isUniversalTextureField(field.key)) {
+          useStudioConfigStore
+            .getState()
+            .patchConfig(field.key, data.relativePath as never);
+        } else {
+          useStudioConfigStore.getState().patchTemplateField(field.key, data.relativePath);
+        }
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Failed to upload sprite.";
+        window.alert(message);
+      }
+    },
+    [selectedTemplateId],
+  );
+
   useEffect(() => {
     let cancelled = false;
 
@@ -158,6 +190,7 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
           ok?: boolean;
           config?: ReturnType<typeof useStudioConfigStore.getState>["config"];
           runtimeAssets?: Record<string, string>;
+          templateFields?: TemplateFieldDescriptor[];
         };
 
         if (!response.ok || !data.ok || cancelled) {
@@ -167,6 +200,9 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
         if (data.config) {
           useStudioConfigStore.getState().hydrateConfig(data.config);
         }
+
+        setTemplateFields(data.templateFields ?? []);
+        usePreviewBridgeStore.getState().setTemplateFields(data.templateFields ?? []);
 
         if (data.runtimeAssets) {
           usePreviewBridgeStore.getState().setRuntimeAssets(data.runtimeAssets);
@@ -199,7 +235,11 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
         initialTemplateId={initialTemplateId}
         previewSuspended={suspended}
       />
-      <StudioSidebar onImageFile={handleImageFile} />
+      <StudioSidebar
+        onImageFile={handleImageFile}
+        templateFields={templateFields}
+        onTemplateImageFile={handleTemplateImageFile}
+      />
     </div>
   );
 }

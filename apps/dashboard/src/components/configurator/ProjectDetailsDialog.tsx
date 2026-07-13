@@ -1,6 +1,7 @@
 "use client";
 
 import { DeleteProjectDialog } from "@/components/configurator/DeleteProjectDialog";
+import { projectFetch } from "@/lib/project-api-client";
 import type { GameProjectManifest } from "@mashedgames/shared";
 import { Check, ExternalLink, FolderOpen, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
@@ -61,7 +62,7 @@ export function ProjectDetailsDialog({
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await projectFetch(
         `/api/projects/${encodeURIComponent(projectId)}/details`,
       );
       const data = (await response.json()) as {
@@ -111,7 +112,7 @@ export function ProjectDetailsDialog({
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await projectFetch(
         `/api/projects/${encodeURIComponent(projectId)}`,
         {
           method: "PATCH",
@@ -154,7 +155,7 @@ export function ProjectDetailsDialog({
     setOpeningFolder(true);
     setError(null);
     try {
-      const response = await fetch(
+      const response = await projectFetch(
         `/api/projects/${encodeURIComponent(projectId)}/open-folder`,
         { method: "POST" },
       );

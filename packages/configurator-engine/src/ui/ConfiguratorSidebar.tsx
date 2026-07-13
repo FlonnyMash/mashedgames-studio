@@ -1,22 +1,29 @@
 "use client";
 
-import type { FlatFieldDefinition } from "@mashedgames/shared";
+import type { FlatFieldDefinition, TemplateFieldDescriptor } from "@mashedgames/shared";
 import { useConfiguratorStore } from "../store/useConfiguratorStore";
+import { DynamicTemplateFieldPanel } from "./DynamicTemplateFieldPanel";
 import { FlatConfigPanel } from "./FlatConfigPanel";
 
 export function ConfiguratorSidebar({
   previewSlot,
   onImageFile,
+  templateFields = [],
 }: {
   previewSlot?: React.ReactNode;
   onImageFile?: (
     file: File,
     field: FlatFieldDefinition,
   ) => void | Promise<void>;
+  /** The active template's dynamic fields, from its manifest.ts. */
+  templateFields?: TemplateFieldDescriptor[];
 }) {
   const config = useConfiguratorStore((state) => state.config);
   const projectId = useConfiguratorStore((state) => state.projectId);
   const patchConfig = useConfiguratorStore((state) => state.patchConfig);
+  const patchTemplateField = useConfiguratorStore(
+    (state) => state.patchTemplateField,
+  );
   const resetBranding = useConfiguratorStore((state) => state.resetBranding);
   const uploadBrandingAsset = useConfiguratorStore(
     (state) => state.uploadBrandingAsset,
@@ -33,6 +40,19 @@ export function ConfiguratorSidebar({
         window.alert(message);
       }
     });
+
+  const handleTemplateImageFile = async (
+    file: File,
+    field: TemplateFieldDescriptor,
+  ) => {
+    try {
+      await uploadBrandingAsset(file, field.key);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to upload sprite.";
+      window.alert(message);
+    }
+  };
 
   return (
     <aside className="flex h-full w-[360px] shrink-0 flex-col border-l border-zinc-200 bg-white">
@@ -60,6 +80,17 @@ export function ConfiguratorSidebar({
           onImageFile={handleImageFile}
           assetPreviewContext={{ projectId: projectId ?? undefined }}
         />
+        {templateFields.length > 0 && (
+          <div className="mt-3">
+            <DynamicTemplateFieldPanel
+              fields={templateFields}
+              values={config.fields ?? {}}
+              onFieldChange={patchTemplateField}
+              onImageFile={handleTemplateImageFile}
+              assetPreviewContext={{ projectId: projectId ?? undefined }}
+            />
+          </div>
+        )}
         {previewSlot}
       </div>
     </aside>

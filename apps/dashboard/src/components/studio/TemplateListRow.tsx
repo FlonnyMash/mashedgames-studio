@@ -14,14 +14,21 @@ import { useState } from "react";
 export function TemplateThumbnail({
   src,
   alt,
+  variant = "inline",
 }: {
   src: string | undefined;
   alt: string;
+  variant?: "inline" | "card";
 }) {
   const [errored, setErrored] = useState(false);
 
+  const wrapperClassName =
+    variant === "card"
+      ? "relative aspect-video w-full overflow-hidden rounded-t-md bg-zinc-900"
+      : "relative aspect-video w-24 shrink-0 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-900";
+
   return (
-    <div className="relative aspect-video w-24 shrink-0 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-900">
+    <div className={wrapperClassName}>
       {src && !errored ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img

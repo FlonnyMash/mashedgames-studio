@@ -15,6 +15,8 @@ const ALLOWED_CHANNELS = new Set([
   "admin:provision-license",
   "admin:template-metadata",
   "admin:fetch",
+  "projects:api-fetch",
+  "projects:create",
   "license:check-eligibility",
   "store:load-catalog",
   "store:load-tag-filters",

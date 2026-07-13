@@ -1,9 +1,12 @@
 import { ensureWorkspaceExists, templateLibraryRoot } from "@/lib/project-paths";
 import { persistBufferToTemplateAssets } from "@/lib/template-assets";
+import { readTemplateFields } from "@/lib/template-fields";
 import {
   GameConfigSchema,
+  isUniversalTextureField,
   normalizeTemplateId,
   patchFlatConfig,
+  patchTemplateField,
   textureKeyForConfigField,
   type GameConfig,
 } from "@mashedgames/shared";
@@ -58,14 +61,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
       file.name,
     );
 
-    const fieldKey = targetPath.trim() as keyof GameConfig;
+    const fieldKey = targetPath.trim();
+    const templateFields = readTemplateFields(resolvedTemplateId);
     let config: GameConfig | null = null;
 
     try {
       const raw = await readFile(configPath, "utf8");
       const parsed = GameConfigSchema.safeParse(JSON.parse(raw));
       if (parsed.success) {
-        config = patchFlatConfig(parsed.data, fieldKey, relativePath);
+        config = isUniversalTextureField(fieldKey)
+          ? patchFlatConfig(parsed.data, fieldKey, relativePath)
+          : patchTemplateField(parsed.data, fieldKey, relativePath);
         await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
       }
     } catch {
@@ -76,7 +82,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       ok: true,
       relativePath,
       absolutePath,
-      textureKey: textureKeyForConfigField(targetPath),
+      textureKey: textureKeyForConfigField(fieldKey, templateFields),
       config,
     });
   } catch (error) {

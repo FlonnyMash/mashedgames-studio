@@ -7,7 +7,7 @@ import {
 import { flushConfigToIframe, useConfigStore } from "@/store/useConfigStore";
 import { useGameLifecycleStore } from "@/store/useGameLifecycleStore";
 import { useTemplateBridgeStore } from "@/store/useTemplateBridgeStore";
-import { CONFIG_TEXTURE_FIELD_MAP, type AppMode, type GameTemplateId, GAME_LIFECYCLE_EVENT_TYPE } from "@mashedgames/shared";
+import { UNIVERSAL_TEXTURE_FIELD_MAP, type AppMode, type GameTemplateId, GAME_LIFECYCLE_EVENT_TYPE } from "@mashedgames/shared";
 import { useEffect, useLayoutEffect, useRef } from "react";
 
 function isIframeDocumentReady(iframe: HTMLIFrameElement): boolean {
@@ -162,13 +162,16 @@ export function useBridgeSync({
         return;
       }
 
-      const assetFieldKeys = Object.keys(CONFIG_TEXTURE_FIELD_MAP);
-      const assetChanged = assetFieldKeys.some(
+      const universalAssetKeys = Object.keys(UNIVERSAL_TEXTURE_FIELD_MAP);
+      const universalAssetChanged = universalAssetKeys.some(
         (key) =>
           state.config[key as keyof typeof state.config] !==
           prev.config[key as keyof typeof prev.config],
       );
-      if (assetChanged) {
+      // Dynamic template image fields live in config.fields — any change
+      // there (including non-asset fields) triggers a cheap no-op re-push.
+      const templateFieldsChanged = state.config.fields !== prev.config.fields;
+      if (universalAssetChanged || templateFieldsChanged) {
         pushConfigAssetsToPreview(state.config);
       }
     });

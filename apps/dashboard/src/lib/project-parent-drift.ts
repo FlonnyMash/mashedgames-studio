@@ -1,5 +1,6 @@
 import { normalizeTemplateId, type ParentDriftReport } from "@mashedgames/shared";
 import { loadProject } from "@/lib/project-io";
+import type { ProjectOwnerContext } from "@/lib/project-owner-context";
 import { buildLiveParentConfig } from "@/lib/project-parent-config";
 
 export function computeParentDriftReport(input: {
@@ -19,11 +20,14 @@ export function computeParentDriftReport(input: {
   };
 }
 
-export async function computeParentDrift(projectId: string): Promise<
+export async function computeParentDrift(
+  projectId: string,
+  ownerContext?: ProjectOwnerContext | null,
+): Promise<
   | { ok: true; report: ParentDriftReport }
   | { ok: false; error: string; status: number }
 > {
-  const loaded = await loadProject(projectId);
+  const loaded = await loadProject(projectId, ownerContext);
   if (!loaded.ok) {
     return loaded;
   }

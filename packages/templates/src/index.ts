@@ -6,3 +6,7 @@ export {
 } from "./catch-game/CatchGameScene";
 export { testManifest, type TestManifest } from "./test/manifest";
 export { TestScene, TEST_SCENE_KEY, type TestSceneInitData } from "./test/TestScene";
+export { newtestManifest, type NewtestManifest } from "./newtest/manifest";
+export { NewtestScene, NEWTEST_SCENE_KEY, type NewtestSceneInitData } from "./newtest/NewtestScene";
+export { welpManifest, type WelpManifest } from "./welp/manifest";
+export { WelpScene, WELP_SCENE_KEY, type WelpSceneInitData } from "./welp/WelpScene";

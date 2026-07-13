@@ -1,5 +1,5 @@
 {
-  "activeTemplateId": "test",
+  "activeTemplateId": "welp",
   "schemaVersion": "2.0.0",
   "themeColor": "#6366f1",
   "backgroundColor": "#0f172a",
@@ -55,5 +55,6 @@
   "showStartScreen": true,
   "showHighscore": true,
   "showLeadCapture": true,
-  "showCountdownTimer": true
+  "showCountdownTimer": true,
+  "fields": {}
 }

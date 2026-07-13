@@ -1,10 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { FlatFieldDefinition } from "@mashedgames/shared";
+
+/** Structural subset shared by FlatFieldDefinition and TemplateFieldDescriptor. */
+export type NumericFieldConstraints = {
+  min?: number;
+  max?: number;
+  step?: number;
+  defaultValue?: number;
+};
 
 type NumberFieldInputProps = {
-  field: FlatFieldDefinition;
+  field: NumericFieldConstraints;
   value: number | undefined;
   disabled?: boolean;
   onCommit: (value: number) => void;
@@ -12,7 +19,7 @@ type NumberFieldInputProps = {
 
 function resolveNumberValue(
   value: number | undefined,
-  field: FlatFieldDefinition,
+  field: NumericFieldConstraints,
 ): number | undefined {
   if (typeof value === "number" && !Number.isNaN(value)) {
     return value;

@@ -5,11 +5,12 @@ import {
   DEFAULT_GAME_CONFIG,
   exportClientPayload,
   enrichClientMeta,
+  isUniversalTextureField,
   normalizeTemplateId,
   isLegacyTemplateId,
   patchFlatConfig,
+  patchTemplateField as patchTemplateFieldValue,
   type ClientProjectPayload,
-  type FlatFieldDefinition,
   type GameConfig,
   type GameProjectManifest,
 } from "@mashedgames/shared";
@@ -20,7 +21,8 @@ const CONFIGURATOR_MODE = "configurator" as const;
 export type AssetSaveInput = {
   projectId: string;
   file: File;
-  fieldKey: FlatFieldDefinition["key"];
+  /** A universal GameConfig key (e.g. "logoUrl") or a template field key. */
+  fieldKey: string;
 };
 
 export type AssetSaveResult = {
@@ -44,6 +46,7 @@ export interface ConfiguratorStore {
     key: K,
     value: GameConfig[K],
   ) => void;
+  patchTemplateField: (key: string, value: string | number | boolean) => void;
   exportClientPayload: () => ClientProjectPayload;
   resetBranding: () => void;
   hydrateProject: (input: {
@@ -57,10 +60,7 @@ export interface ConfiguratorStore {
   hasUnsavedClient: () => boolean;
   setAssetSaveHandler: (handler: AssetSaveHandler | null) => void;
   setConfig: (config: GameConfig) => void;
-  uploadBrandingAsset: (
-    file: File,
-    fieldKey: FlatFieldDefinition["key"],
-  ) => Promise<void>;
+  uploadBrandingAsset: (file: File, fieldKey: string) => Promise<void>;
 }
 
 function brandingDefaults(): GameConfig {
@@ -99,6 +99,11 @@ export const useConfiguratorStore = create<ConfiguratorStore>((set, get) => ({
   patchConfig: (key, value) => {
     assertPermission(CONFIGURATOR_MODE, "schema:branding");
     set({ config: patchFlatConfig(get().config, key, value) });
+  },
+
+  patchTemplateField: (key, value) => {
+    assertPermission(CONFIGURATOR_MODE, "schema:branding");
+    set({ config: patchTemplateFieldValue(get().config, key, value) });
   },
 
   exportClientPayload: () => exportClientPayload(get().config),
@@ -201,7 +206,11 @@ export const useConfiguratorStore = create<ConfiguratorStore>((set, get) => ({
       throw new Error("Asset upload is unavailable outside a loaded project.");
     }
     const result = await handler({ projectId, file, fieldKey });
-    get().patchConfig(fieldKey as keyof GameConfig, result.relativePath as never);
+    if (isUniversalTextureField(fieldKey)) {
+      get().patchConfig(fieldKey, result.relativePath);
+    } else {
+      get().patchTemplateField(fieldKey, result.relativePath);
+    }
     if (result.manifest) {
       get().updateProjectManifest(result.manifest);
     }

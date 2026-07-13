@@ -1,4 +1,5 @@
 import { saveProjectClient } from "@/lib/project-io";
+import { resolveProjectOwnerContext } from "@/lib/project-owner-context";
 import { ClientProjectPayloadSchema } from "@mashedgames/shared";
 import type { NextRequest } from "next/server";
 
@@ -19,7 +20,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const result = await saveProjectClient(projectId, parsed.data);
+    const ownerContext = await resolveProjectOwnerContext(request);
+    const result = await saveProjectClient(projectId, parsed.data, ownerContext);
     if (!result.ok) {
       return Response.json(
         { ok: false, error: result.error },

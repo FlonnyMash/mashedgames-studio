@@ -46,47 +46,46 @@ export function ProjectListRow({
 
   return (
     <>
-      <li className="group relative">
-        <div className="flex items-center gap-2 pr-2">
-          <button
-            type="button"
-            onClick={openProject}
-            className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left text-sm transition-colors hover:bg-zinc-50"
-          >
-            {/* 16:9 thumbnail inherited from parent template */}
-            <TemplateThumbnail
-              src={project.thumbnailUrl}
-              alt={displayName}
-            />
+      <div className="group relative flex flex-col overflow-hidden rounded-md border border-zinc-100 bg-white transition-colors hover:border-zinc-200">
+        <button
+          type="button"
+          onClick={openProject}
+          className="flex flex-1 flex-col text-left"
+        >
+          <TemplateThumbnail
+            variant="card"
+            src={project.thumbnailUrl}
+            alt={displayName}
+          />
 
-            <span className="min-w-0 flex-1">
-              <span className="block font-medium text-zinc-900">
-                {displayName}
-              </span>
-              <span className="mt-0.5 block text-xs text-zinc-500">
-                {project.parentTemplateId} · v{project.parentVersion}
-              </span>
+          <div className="flex flex-1 flex-col gap-2.5 p-4">
+            <span className="text-sm font-semibold tracking-tight text-zinc-900">
+              {displayName}
             </span>
+            <div className="flex flex-wrap gap-1.5">
+              <span className="rounded-sm bg-zinc-100 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                {project.projectId}
+              </span>
+              <span className="rounded-sm bg-zinc-100 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-zinc-600">
+                v{project.parentVersion}
+              </span>
+            </div>
+          </div>
+        </button>
 
-            <span className="ml-4 shrink-0 font-mono text-xs text-zinc-400">
-              {project.projectId}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              setDetailsOpen(true);
-            }}
-            className="shrink-0 rounded-lg p-2 text-zinc-400 opacity-100 transition-all hover:bg-zinc-100 hover:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus:opacity-100"
-            aria-label={`${displayName} details`}
-          >
-            <MoreVertical className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-      </li>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            setDetailsOpen(true);
+          }}
+          className="absolute right-2 top-2 rounded-md bg-white/90 p-1.5 text-zinc-400 opacity-100 backdrop-blur-sm transition-all hover:bg-white hover:text-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-900/10 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:focus:opacity-100"
+          aria-label={`${displayName} details`}
+        >
+          <MoreVertical className="h-4 w-4" aria-hidden />
+        </button>
+      </div>
 
       <ProjectDetailsDialog
         projectId={project.projectId}

@@ -1,5 +1,6 @@
 "use client";
 
+import { projectFetch } from "@/lib/project-api-client";
 import { useMenuActionsStore } from "@/lib/menu-actions-store";
 import { STUDIO_MODE_ENABLED } from "@/lib/studio-mode";
 import { useWorkspaceSessionStore } from "@/lib/workspace-session-store";
@@ -133,7 +134,7 @@ export function AppMenuBar() {
       return;
     }
     let cancelled = false;
-    fetch(`/api/projects/${encodeURIComponent(activeConfiguratorProjectId)}`)
+    projectFetch(`/api/projects/${encodeURIComponent(activeConfiguratorProjectId)}`)
       .then((res) => res.json())
       .then((data: { ok?: boolean; manifest?: { parentTemplateId?: string } }) => {
         if (!cancelled && data.ok && data.manifest?.parentTemplateId) {
