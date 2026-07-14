@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "afterFileEdit": [
+      {
+        "command": "node .cursor/hooks/backfill-template-agents.mjs",
+        "matcher": "Write",
+        "timeout": 10
+      }
+    ]
+  }
+}

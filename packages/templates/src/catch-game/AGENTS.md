@@ -10,10 +10,10 @@ Your jurisdiction is **strictly limited** to the template you are currently work
 You MAY only create or modify files inside:
 
 ```
-packages/templates/src/<template-id>/
+packages/templates/src/catch-game/
 ```
 
-Where `<template-id>` is the specific template directory you have been assigned (e.g. `catch-game`, `quiz-game`).
+Where `catch-game` is the specific template directory you have been assigned (e.g. `catch-game`, `quiz-game`).
 
 You MUST NOT create files at any other path. If you need a shared utility, raise it for the Lead Architect to add to `@mashedgames/shared`.
 
@@ -40,7 +40,7 @@ If any task requires changing those files, **stop and raise it**. Do not silentl
 ## Import Rules
 
 - Import ONLY via workspace package names: `@mashedgames/shared`, `@mashedgames/game-engine`.
-- NEVER use relative `../` paths that escape `packages/templates/src/<template-id>/`.
+- NEVER use relative `../` paths that escape `packages/templates/src/catch-game/`.
 - NEVER import from `apps/dashboard/src/`, `apps/game-engine/src/`, or any `packages/*/src/` directly.
 
 ---
@@ -59,7 +59,7 @@ const myGameFields: TemplateFieldDescriptor[] = [
 ];
 
 export const myGameManifest = {
-  templateId:       '<template-id>',    // must match directory name
+  templateId:       'catch-game',    // must match directory name
   version:          '1.0.0',
   displayName:      '<Human readable>',
   lockedFields:     [...],              // GameConfig keys configurator cannot change
@@ -121,7 +121,7 @@ ON_LEVEL_COMPLETE | ON_LIFE_LOST | ON_COMBO_UPDATE | ON_TIMER_UPDATE
 
 ## Checklist Before Every Response
 
-1. Are all file writes inside `packages/templates/src/<template-id>/`? If not, STOP.
+1. Are all file writes inside `packages/templates/src/catch-game/`? If not, STOP.
 2. Does the manifest `satisfies TemplateSchema` with all four required fields?
 3. Does Phaser render any UI text or DOM elements? If yes, STOP and refactor.
 4. Are there any `../` relative imports escaping the template directory? If yes, STOP.
