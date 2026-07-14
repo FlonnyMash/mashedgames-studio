@@ -9,6 +9,7 @@ import type {
   GameProjectManifest,
   ParentDriftReport,
   TemplateFieldDescriptor,
+  UIModule,
 } from "@mashedgames/shared";
 import { FlaskConical, Loader2, LogOut } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -112,6 +113,7 @@ export function ConfiguratorProjectGate({
           config?: GameConfig;
           runtimeAssets?: Record<string, string>;
           templateFields?: TemplateFieldDescriptor[];
+          supportsUI?: UIModule[];
         };
 
         if (!res.ok || !data.ok) {
@@ -123,6 +125,7 @@ export function ConfiguratorProjectGate({
         usePreviewBridgeStore
           .getState()
           .setTemplateFields(data.templateFields ?? []);
+        usePreviewBridgeStore.getState().setSupportsUI(data.supportsUI ?? []);
 
         if (data.config) {
           useConfiguratorStore
@@ -199,6 +202,7 @@ export function ConfiguratorProjectGate({
           client?: ClientProjectPayload;
           runtimeAssets?: Record<string, string>;
           templateFields?: TemplateFieldDescriptor[];
+          supportsUI?: UIModule[];
         };
 
         if (!response.ok || !data.ok || !data.manifest || !data.config || !data.client) {
@@ -210,6 +214,7 @@ export function ConfiguratorProjectGate({
         usePreviewBridgeStore
           .getState()
           .setTemplateFields(data.templateFields ?? []);
+        usePreviewBridgeStore.getState().setSupportsUI(data.supportsUI ?? []);
 
         useConfiguratorStore.getState().hydrateProject({
           manifest: data.manifest,

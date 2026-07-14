@@ -1,14 +1,12 @@
 {
-  "activeTemplateId": "catch-game",
+  "activeTemplateId": "lucky-wheel",
   "schemaVersion": "2.0.0",
-  "appMode": "studio",
   "themeColor": "#6366f1",
-  "backgroundColor": "#bdbdbd",
-  "logoUrl": "",
+  "backgroundColor": "#0f172a",
   "startScreenTitle": "Ready to play?",
   "startScreenSubtitle": "Tap start when you are ready.",
   "ctaLabel": "Start Game",
-  "playerSpeed": 420,
+  "playerSpeed": 320,
   "gameDurationSeconds": 60,
   "startScreenTitleColor": "#ffffff",
   "startScreenTitleBold": false,
@@ -58,20 +56,5 @@
   "showHighscore": true,
   "showLeadCapture": true,
   "showCountdownTimer": true,
-  "fields": {
-    "playerCatcherUrl": "",
-    "collectibleGoodUrl": "",
-    "collectibleBadUrl": "",
-    "goodItemPoints": 10,
-    "badItemPenalty": 5,
-    "badItemChancePercent": 25,
-    "spawnIntervalMs": 900,
-    "minSpawnIntervalMs": 420,
-    "fallSpeedStart": 150,
-    "fallSpeedMax": 280,
-    "badSpawnIntervalMs": 1800,
-    "badMinSpawnIntervalMs": 900,
-    "badFallSpeedStart": 130,
-    "badFallSpeedMax": 260
-  }
+  "fields": {}
 }

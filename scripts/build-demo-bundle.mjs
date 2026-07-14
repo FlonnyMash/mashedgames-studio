@@ -17,12 +17,83 @@ const bakedConfigPath = path.join(
   "demo-config.baked.json",
 );
 
-const CONFIG_TEXTURE_FIELD_KEYS = [
-  "logoUrl",
+const UNIVERSAL_TEXTURE_FIELD_KEYS = ["logoUrl"];
+
+const TEMPLATE_TEXTURE_FIELD_KEYS = [
   "playerCatcherUrl",
   "collectibleGoodUrl",
   "collectibleBadUrl",
 ];
+
+/** Top-level GameConfig keys — anything else is template-specific and belongs in `fields`. */
+const GAME_CONFIG_TOP_LEVEL_KEYS = new Set([
+  "activeTemplateId",
+  "projectId",
+  "schemaVersion",
+  "appMode",
+  "themeColor",
+  "backgroundColor",
+  "logoUrl",
+  "clientName",
+  "clientLogoPath",
+  "startScreenTitle",
+  "startScreenSubtitle",
+  "ctaLabel",
+  "playerSpeed",
+  "gameDurationSeconds",
+  "parentTemplateId",
+  "parentPinnedVersion",
+  "lastParentSyncAt",
+  "startScreenTitleColor",
+  "startScreenTitleBold",
+  "startScreenTitleItalic",
+  "startScreenTitleUnderline",
+  "startScreenSubtitleColor",
+  "startScreenSubtitleBold",
+  "startScreenSubtitleItalic",
+  "startScreenSubtitleUnderline",
+  "ctaTextColor",
+  "ctaLabelBold",
+  "ctaLabelItalic",
+  "ctaLabelUnderline",
+  "leadCaptureTitle",
+  "leadCaptureSubtitle",
+  "leadCaptureNamePlaceholder",
+  "leadCaptureEmailPlaceholder",
+  "leadCaptureSubmitLabel",
+  "leadCaptureRetryLabel",
+  "leadCaptureTitleColor",
+  "leadCaptureTitleBold",
+  "leadCaptureTitleItalic",
+  "leadCaptureTitleUnderline",
+  "leadCaptureSubtitleColor",
+  "leadCaptureSubtitleBold",
+  "leadCaptureSubtitleItalic",
+  "leadCaptureSubtitleUnderline",
+  "leadCaptureSubmitColor",
+  "leadCaptureSubmitBold",
+  "leadCaptureSubmitItalic",
+  "leadCaptureSubmitUnderline",
+  "leadCaptureRetryColor",
+  "leadCaptureRetryBold",
+  "leadCaptureRetryItalic",
+  "leadCaptureRetryUnderline",
+  "highscoreTitle",
+  "highscoreSubtitle",
+  "highscoreTitleColor",
+  "highscoreTitleBold",
+  "highscoreTitleItalic",
+  "highscoreTitleUnderline",
+  "highscoreSubtitleColor",
+  "highscoreSubtitleBold",
+  "highscoreSubtitleItalic",
+  "highscoreSubtitleUnderline",
+  "showStartScreen",
+  "showHighscore",
+  "showLeadCapture",
+  "showCountdownTimer",
+  "fields",
+]);
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -56,11 +127,32 @@ function copyDir(from, to) {
   fs.cpSync(from, to, { recursive: true });
 }
 
+function readTextureFieldPath(config, fieldKey) {
+  if (UNIVERSAL_TEXTURE_FIELD_KEYS.includes(fieldKey)) {
+    return config[fieldKey];
+  }
+
+  const fields = config.fields;
+  if (fields && typeof fields === "object" && !Array.isArray(fields)) {
+    const nested = fields[fieldKey];
+    if (typeof nested === "string" && nested.trim()) {
+      return nested;
+    }
+  }
+
+  // Legacy templates may still store template textures at the top level.
+  return config[fieldKey];
+}
+
 function buildRuntimeAssets(templateDir, config) {
   const runtimeAssets = {};
+  const textureFieldKeys = [
+    ...UNIVERSAL_TEXTURE_FIELD_KEYS,
+    ...TEMPLATE_TEXTURE_FIELD_KEYS,
+  ];
 
-  for (const fieldKey of CONFIG_TEXTURE_FIELD_KEYS) {
-    const assetPath = config[fieldKey];
+  for (const fieldKey of textureFieldKeys) {
+    const assetPath = readTextureFieldPath(config, fieldKey);
     if (typeof assetPath !== "string" || !assetPath.trim()) {
       continue;
     }
@@ -80,9 +172,37 @@ function buildRuntimeAssets(templateDir, config) {
   return runtimeAssets;
 }
 
+/**
+ * Hoists legacy top-level template-specific keys into GameConfig.fields so
+ * runtime scenes (which read config.fields) and demo rebuilds stay aligned.
+ */
+function normalizeConfigFields(raw) {
+  const config = { ...raw };
+  const fields =
+    typeof config.fields === "object" &&
+    config.fields !== null &&
+    !Array.isArray(config.fields)
+      ? { ...config.fields }
+      : {};
+
+  for (const [key, value] of Object.entries(config)) {
+    if (key === "fields" || GAME_CONFIG_TOP_LEVEL_KEYS.has(key)) {
+      continue;
+    }
+    if (!(key in fields)) {
+      fields[key] = value;
+    }
+    delete config[key];
+  }
+
+  config.fields = fields;
+  return config;
+}
+
 function normalizeDemoConfig(raw, templateSlug) {
+  const hoisted = normalizeConfigFields(raw);
   return {
-    ...raw,
+    ...hoisted,
     activeTemplateId: templateSlug,
     appMode: "studio",
   };

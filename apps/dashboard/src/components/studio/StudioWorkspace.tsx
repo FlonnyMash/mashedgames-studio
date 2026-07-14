@@ -17,6 +17,7 @@ import {
   normalizeTemplateId,
   type FlatFieldDefinition,
   type TemplateFieldDescriptor,
+  type UIModule,
 } from "@mashedgames/shared";
 import { StudioSidebar, useStudioConfigStore } from "@mashedgames/studio-engine";
 import { useRouter } from "next/navigation";
@@ -30,6 +31,7 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
     (state) => state.selectedTemplateId,
   );
   const [templateFields, setTemplateFields] = useState<TemplateFieldDescriptor[]>([]);
+  const [supportsUI, setSupportsUI] = useState<UIModule[]>([]);
 
   useEffect(() => {
     const studioState = useStudioConfigStore.getState();
@@ -89,6 +91,7 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
       config?: ReturnType<typeof useStudioConfigStore.getState>["config"];
       runtimeAssets?: Record<string, string>;
       templateFields?: TemplateFieldDescriptor[];
+      supportsUI?: UIModule[];
     };
     if (!res.ok || !data.ok) {
       throw new Error(data.error ?? "Revert failed.");
@@ -98,6 +101,8 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
     }
     setTemplateFields(data.templateFields ?? []);
     usePreviewBridgeStore.getState().setTemplateFields(data.templateFields ?? []);
+    setSupportsUI(data.supportsUI ?? []);
+    usePreviewBridgeStore.getState().setSupportsUI(data.supportsUI ?? []);
     if (data.runtimeAssets) {
       usePreviewBridgeStore.getState().setRuntimeAssets(data.runtimeAssets);
       pushRuntimeAssetsToPreview();
@@ -191,6 +196,7 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
           config?: ReturnType<typeof useStudioConfigStore.getState>["config"];
           runtimeAssets?: Record<string, string>;
           templateFields?: TemplateFieldDescriptor[];
+          supportsUI?: UIModule[];
         };
 
         if (!response.ok || !data.ok || cancelled) {
@@ -203,6 +209,8 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
 
         setTemplateFields(data.templateFields ?? []);
         usePreviewBridgeStore.getState().setTemplateFields(data.templateFields ?? []);
+        setSupportsUI(data.supportsUI ?? []);
+        usePreviewBridgeStore.getState().setSupportsUI(data.supportsUI ?? []);
 
         if (data.runtimeAssets) {
           usePreviewBridgeStore.getState().setRuntimeAssets(data.runtimeAssets);
@@ -238,6 +246,7 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
       <StudioSidebar
         onImageFile={handleImageFile}
         templateFields={templateFields}
+        supportsUI={supportsUI}
         onTemplateImageFile={handleTemplateImageFile}
       />
     </div>

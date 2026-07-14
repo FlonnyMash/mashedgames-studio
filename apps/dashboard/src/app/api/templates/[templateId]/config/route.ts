@@ -1,6 +1,6 @@
 import { ensureWorkspaceExists, templateLibraryRoot } from "@/lib/project-paths";
 import { resolveAssetFilePath } from "@/lib/serve-workspace-asset";
-import { readTemplateFields } from "@/lib/template-fields";
+import { readTemplateFields, readTemplateSupportsUI } from "@/lib/template-fields";
 import {
   getDynamicTextureFieldMap,
   GameConfigSchema,
@@ -56,6 +56,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const templateDir = path.join(templateLibraryRoot, resolvedTemplateId);
     const configPath = path.join(templateDir, "config.json");
     const templateFields = readTemplateFields(resolvedTemplateId);
+    const supportsUI = readTemplateSupportsUI(resolvedTemplateId);
 
     if (!existsSync(configPath)) {
       return Response.json({
@@ -64,6 +65,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
         config: null,
         runtimeAssets: {},
         templateFields,
+        supportsUI,
       });
     }
 
@@ -82,6 +84,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       config,
       runtimeAssets: buildRuntimeAssets(templateDir, config, templateFields),
       templateFields,
+      supportsUI,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load config.";

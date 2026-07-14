@@ -18,6 +18,7 @@ import type {
   GameConfig,
   GameProjectManifest,
   TemplateFieldDescriptor,
+  UIModule,
 } from "@mashedgames/shared";
 import {
   ConfiguratorSidebar,
@@ -39,6 +40,7 @@ export function ConfiguratorWorkspace({
     (state) => state.setAssetSaveHandler,
   );
   const templateFields = usePreviewBridgeStore((state) => state.templateFields);
+  const supportsUI = usePreviewBridgeStore((state) => state.supportsUI);
 
   // Sync configurator state into the preview config store.
   useEffect(() => {
@@ -114,6 +116,7 @@ export function ConfiguratorWorkspace({
       client?: ClientProjectPayload;
       runtimeAssets?: Record<string, string>;
       templateFields?: TemplateFieldDescriptor[];
+      supportsUI?: UIModule[];
     };
 
     if (!res.ok || !data.ok || !data.manifest || !data.config || !data.client) {
@@ -121,6 +124,7 @@ export function ConfiguratorWorkspace({
     }
 
     usePreviewBridgeStore.getState().setTemplateFields(data.templateFields ?? []);
+    usePreviewBridgeStore.getState().setSupportsUI(data.supportsUI ?? []);
 
     useConfiguratorStore.getState().hydrateProject({
       manifest: data.manifest,
@@ -174,7 +178,7 @@ export function ConfiguratorWorkspace({
         initialTemplateId={initialTemplateId}
         previewSuspended={suspended}
       />
-      <ConfiguratorSidebar templateFields={templateFields} />
+      <ConfiguratorSidebar templateFields={templateFields} supportsUI={supportsUI} />
     </div>
   );
 }

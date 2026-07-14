@@ -3,8 +3,10 @@ import path from "node:path";
 import ts from "typescript";
 import {
   TemplateFieldDescriptorSchema,
+  UIModuleSchema,
   normalizeTemplateId,
   type TemplateFieldDescriptor,
+  type UIModule,
 } from "@mashedgames/shared";
 import { engineTemplatesRoot } from "@/lib/template-library-root";
 
@@ -17,7 +19,7 @@ import { engineTemplatesRoot } from "@/lib/template-library-root";
 // concerns" law in .cursorrules).
 // ---------------------------------------------------------------------------
 
-const KNOWN_ENUM_OBJECTS = new Set(["TEMPLATE_FIELD_TYPE"]);
+const KNOWN_ENUM_OBJECTS = new Set(["TEMPLATE_FIELD_TYPE", "UI_MODULE"]);
 
 function evaluateExpression(node: ts.Expression): unknown {
   if (ts.isStringLiteralLike(node)) {
@@ -158,6 +160,72 @@ export function readTemplateFields(templateId: string): TemplateFieldDescriptor[
   try {
     const source = readFileSync(manifestPath, "utf8");
     return readManifestFieldsFromSource(source);
+  } catch {
+    return [];
+  }
+}
+
+function readManifestSupportsUIFromSource(source: string): UIModule[] {
+  const sourceFile = ts.createSourceFile(
+    "manifest.ts",
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+
+  const manifestLiteral = findManifestObjectLiteral(sourceFile);
+  if (!manifestLiteral) {
+    return [];
+  }
+
+  const supportsUIProperty = manifestLiteral.properties.find(
+    (p): p is ts.PropertyAssignment =>
+      ts.isPropertyAssignment(p) &&
+      ts.isIdentifier(p.name) &&
+      p.name.text === "supportsUI",
+  );
+  if (!supportsUIProperty) {
+    return [];
+  }
+
+  const rawSupportsUI = evaluateExpression(supportsUIProperty.initializer);
+  const parsed = UIModuleSchema.array().safeParse(rawSupportsUI);
+  if (!parsed.success) {
+    if (process.env.NODE_ENV !== "production") {
+      console.warn(
+        "[template-fields] Failed to parse manifest `supportsUI` array:",
+        parsed.error.message,
+      );
+    }
+    return [];
+  }
+  return parsed.data;
+}
+
+/**
+ * Reads the active template's declared `supportsUI: UIModule[]` from its
+ * manifest.ts. This is the authoritative list of overlay modules (Start
+ * Screen, Highscore, Lead Capture, Countdown Timer) the template activates —
+ * the dashboard and configurator UI must never show/enable a universal
+ * overlay module the manifest hasn't declared, regardless of the raw
+ * GameConfig `showXxx` boolean flags. Returns an empty array for zero-state
+ * templates or when manifest.ts is missing/unparsable.
+ */
+export function readTemplateSupportsUI(templateId: string): UIModule[] {
+  const resolvedTemplateId = normalizeTemplateId(templateId);
+  const manifestPath = path.join(
+    engineTemplatesRoot,
+    resolvedTemplateId,
+    "manifest.ts",
+  );
+  if (!existsSync(manifestPath)) {
+    return [];
+  }
+
+  try {
+    const source = readFileSync(manifestPath, "utf8");
+    return readManifestSupportsUIFromSource(source);
   } catch {
     return [];
   }

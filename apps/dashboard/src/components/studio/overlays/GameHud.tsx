@@ -1,6 +1,8 @@
 "use client";
 
 import { useGameLifecycleStore } from "@/store/useGameLifecycleStore";
+import { usePreviewBridgeStore } from "@/lib/preview-bridge-store";
+import { UI_MODULE } from "@mashedgames/shared";
 import { useEffect, useState } from "react";
 import type { TemplateOverlayProps } from "./types";
 
@@ -17,9 +19,18 @@ export function GameHud({ config }: TemplateOverlayProps) {
   const isPlaying = useGameLifecycleStore((state) => state.isPlaying);
   const isGameOver = useGameLifecycleStore((state) => state.isGameOver);
   const [localSeconds, setLocalSeconds] = useState(config.gameDurationSeconds);
+  const supportsUI = usePreviewBridgeStore((state) => state.supportsUI);
 
-  const showTimer = config.showCountdownTimer !== false;
-  const showScore = config.showHighscore !== false && (isPlaying || isGameOver);
+  // Manifest is the source of truth: the raw GameConfig `showXxx` flag is
+  // only consulted once the template's manifest.supportsUI has confirmed
+  // the module is actually supported.
+  const showTimer =
+    config.showCountdownTimer !== false &&
+    supportsUI.includes(UI_MODULE.COUNTDOWN_TIMER);
+  const showScore =
+    config.showHighscore !== false &&
+    supportsUI.includes(UI_MODULE.HIGHSCORE) &&
+    (isPlaying || isGameOver);
 
   useEffect(() => {
     if (!isPlaying || isGameOver) {

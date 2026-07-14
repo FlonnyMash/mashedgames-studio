@@ -34,6 +34,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     parentLock: result.data.parentLock,
     runtimeAssets: result.data.runtimeAssets,
     templateFields: result.data.templateFields,
+    supportsUI: result.data.supportsUI,
   });
 }
 

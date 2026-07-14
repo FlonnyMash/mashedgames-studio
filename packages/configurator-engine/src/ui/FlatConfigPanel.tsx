@@ -5,6 +5,7 @@ import type {
   FlatFieldDefinition,
   GameConfig,
   GroupDefinition,
+  UIModule,
 } from "@mashedgames/shared";
 import {
   fieldsForGroup,
@@ -45,6 +46,8 @@ export type FlatConfigPanelProps = {
   ) => void | Promise<void>;
   mode?: "studio" | "configurator";
   assetPreviewContext?: AssetPreviewContext;
+  /** The active template's declared `manifest.supportsUI` — gates universal overlay groups. */
+  supportsUI?: UIModule[];
 };
 
 // ---------------------------------------------------------------------------
@@ -369,9 +372,10 @@ export function FlatConfigPanel({
   onImageFile,
   mode = "configurator",
   assetPreviewContext,
+  supportsUI,
 }: FlatConfigPanelProps) {
   const templateId = config.activeTemplateId;
-  const groups = groupsForMode(mode, templateId);
+  const groups = groupsForMode(mode, templateId, supportsUI);
   const loose = ungroupedFields(mode, templateId);
 
   return (

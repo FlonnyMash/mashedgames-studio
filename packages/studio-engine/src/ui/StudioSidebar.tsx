@@ -1,6 +1,10 @@
 "use client";
 
-import type { FlatFieldDefinition, TemplateFieldDescriptor } from "@mashedgames/shared";
+import type {
+  FlatFieldDefinition,
+  TemplateFieldDescriptor,
+  UIModule,
+} from "@mashedgames/shared";
 import { useStudioConfigStore } from "../store/useStudioConfigStore";
 import { DynamicTemplateFieldPanel } from "./DynamicTemplateFieldPanel";
 import { FlatConfigPanel } from "./FlatConfigPanel";
@@ -9,6 +13,7 @@ export function StudioSidebar({
   previewSlot,
   onImageFile,
   templateFields = [],
+  supportsUI,
   onTemplateImageFile,
 }: {
   previewSlot?: React.ReactNode;
@@ -18,6 +23,13 @@ export function StudioSidebar({
   ) => void | Promise<void>;
   /** The active template's dynamic fields, from its manifest.ts. */
   templateFields?: TemplateFieldDescriptor[];
+  /**
+   * The active template's declared `manifest.supportsUI`. Gates the
+   * universal Start Screen/Highscore/Lead Capture/Timer groups — a
+   * template that doesn't declare a module must not show its controls.
+   * `undefined` means "not loaded yet" and shows all groups.
+   */
+  supportsUI?: UIModule[];
   onTemplateImageFile?: (
     file: File,
     field: TemplateFieldDescriptor,
@@ -55,6 +67,7 @@ export function StudioSidebar({
           onFieldChange={patchConfig}
           onImageFile={onImageFile}
           assetPreviewContext={{ templateId: selectedTemplateId }}
+          supportsUI={supportsUI}
         />
         {templateFields.length > 0 && (
           <div className="mt-3">

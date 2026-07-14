@@ -1,11 +1,18 @@
 "use client";
 
 import { useState } from "react";
+import { UI_MODULE } from "@mashedgames/shared";
+import { usePreviewBridgeStore } from "@/lib/preview-bridge-store";
 import type { TemplateOverlayProps } from "./types";
 
 export function StartScreen({ config, messenger, disabled }: TemplateOverlayProps) {
   const [dismissed, setDismissed] = useState(false);
+  const supportsUI = usePreviewBridgeStore((state) => state.supportsUI);
 
+  // Manifest is the source of truth: the template must explicitly declare
+  // START_SCREEN in `supportsUI` before this overlay is allowed to render,
+  // regardless of the raw GameConfig `showStartScreen` flag.
+  if (!supportsUI.includes(UI_MODULE.START_SCREEN)) return null;
   if (config.showStartScreen === false || dismissed) return null;
 
   const title = config.startScreenTitle || "Play Now";

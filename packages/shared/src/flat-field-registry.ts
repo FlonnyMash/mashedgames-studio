@@ -1,6 +1,7 @@
 import type { AppMode } from "./flat-game-config";
 import type { GameConfig } from "./flat-game-config";
 import { normalizeTemplateId } from "./template-id";
+import { UI_MODULE, type UIModule } from "./template-schema";
 
 export type FlatFieldType =
   | "color"
@@ -80,6 +81,14 @@ export type GroupDefinition = {
   defaultCollapsed?: boolean;
   /** When set, the group is shown only for these template ids. */
   templateIds?: string[];
+  /**
+   * The overlay module this group's fields configure. When set, the group
+   * (and its master toggle) is hidden unless the active template's manifest
+   * declares this module in `supportsUI` — the manifest is the source of
+   * truth, not the raw GameConfig boolean flags. Groups without a uiModule
+   * (e.g. "branding") are never gated this way.
+   */
+  uiModule?: UIModule;
 };
 
 export const GROUP_REGISTRY: GroupDefinition[] = [
@@ -93,6 +102,7 @@ export const GROUP_REGISTRY: GroupDefinition[] = [
     label: "Start Screen",
     surface: "both",
     masterVisibilityKey: "showStartScreen",
+    uiModule: UI_MODULE.START_SCREEN,
   },
   {
     id: "highscore",
@@ -100,6 +110,7 @@ export const GROUP_REGISTRY: GroupDefinition[] = [
     surface: "both",
     masterVisibilityKey: "showHighscore",
     defaultCollapsed: true,
+    uiModule: UI_MODULE.HIGHSCORE,
   },
   {
     id: "leadCapture",
@@ -107,6 +118,7 @@ export const GROUP_REGISTRY: GroupDefinition[] = [
     surface: "both",
     masterVisibilityKey: "showLeadCapture",
     defaultCollapsed: false,
+    uiModule: UI_MODULE.LEAD_CAPTURE,
   },
   {
     id: "timer",
@@ -114,6 +126,7 @@ export const GROUP_REGISTRY: GroupDefinition[] = [
     surface: "both",
     masterVisibilityKey: "showCountdownTimer",
     defaultCollapsed: false,
+    uiModule: UI_MODULE.COUNTDOWN_TIMER,
   },
 ];
 
@@ -331,9 +344,27 @@ export function fieldsForMode(
   );
 }
 
+/**
+ * Whether a universal overlay group is allowed to render for the active
+ * template. Groups with no `uiModule` (e.g. "branding") are always allowed.
+ * `supportsUI === undefined` means "unknown/not loaded yet" and does not
+ * filter anything, so the panel doesn't flash empty before the manifest's
+ * `supportsUI` has been fetched.
+ */
+function matchesSupportedUI(
+  group: GroupDefinition,
+  supportsUI: UIModule[] | undefined,
+): boolean {
+  if (!group.uiModule || !supportsUI) {
+    return true;
+  }
+  return (supportsUI as string[]).includes(group.uiModule);
+}
+
 export function groupsForMode(
   mode: AppMode,
   activeTemplateId?: string,
+  supportsUI?: UIModule[],
 ): GroupDefinition[] {
   const allowed: FlatFieldSurface[] =
     mode === "studio" ? ["studio", "both"] : ["configurator", "both"];
@@ -342,6 +373,9 @@ export function groupsForMode(
       return false;
     }
     if (!matchesTemplate(group.templateIds, activeTemplateId)) {
+      return false;
+    }
+    if (!matchesSupportedUI(group, supportsUI)) {
       return false;
     }
     if (group.masterVisibilityKey) {

@@ -1,6 +1,8 @@
 "use client";
 
 import { useGameLifecycleStore } from "@/store/useGameLifecycleStore";
+import { usePreviewBridgeStore } from "@/lib/preview-bridge-store";
+import { UI_MODULE } from "@mashedgames/shared";
 import type { TemplateOverlayProps } from "./types";
 import { HighscoreTable } from "./HighscoreTable";
 import { overlayTextStyle } from "./overlayTextStyle";
@@ -12,9 +14,15 @@ export function PostGameScreen({
 }: TemplateOverlayProps) {
   const isGameOver = useGameLifecycleStore((state) => state.isGameOver);
   const score = useGameLifecycleStore((state) => state.score);
+  const supportsUI = usePreviewBridgeStore((state) => state.supportsUI);
 
-  const showLeadCapture = config.showLeadCapture !== false;
-  const showHighscore = config.showHighscore !== false;
+  // Manifest is the source of truth: the raw GameConfig `showXxx` flag is
+  // only consulted once the template's manifest.supportsUI has confirmed
+  // the module is actually supported.
+  const showLeadCapture =
+    config.showLeadCapture !== false && supportsUI.includes(UI_MODULE.LEAD_CAPTURE);
+  const showHighscore =
+    config.showHighscore !== false && supportsUI.includes(UI_MODULE.HIGHSCORE);
 
   if (!isGameOver || (!showLeadCapture && !showHighscore)) {
     return null;

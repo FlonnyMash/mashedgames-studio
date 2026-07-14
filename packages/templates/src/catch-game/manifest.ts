@@ -148,7 +148,12 @@ export const catchGameManifest = {
   version: "2.0.0",
   displayName: "Catch Game",
   lockedFields: ["activeTemplateId", "schemaVersion"],
-  supportsUI: [UI_MODULE.HIGHSCORE, UI_MODULE.COUNTDOWN_TIMER],
+  supportsUI: [
+    UI_MODULE.START_SCREEN,
+    UI_MODULE.HIGHSCORE,
+    UI_MODULE.LEAD_CAPTURE,
+    UI_MODULE.COUNTDOWN_TIMER,
+  ],
   supportedEvents: [
     GAME_LIFECYCLE_EVENT_TYPE.ON_GAME_READY,
     GAME_LIFECYCLE_EVENT_TYPE.ON_GAME_START,

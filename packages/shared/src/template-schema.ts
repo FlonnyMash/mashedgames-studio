@@ -10,6 +10,7 @@ import { TemplateFieldDescriptorSchema } from "./template-field-schema";
 // ---------------------------------------------------------------------------
 
 export const UI_MODULE = {
+  START_SCREEN: "start-screen",
   HIGHSCORE: "highscore",
   PERCENTAGE_WIN: "percentage-win",
   LEAD_CAPTURE: "lead-capture",

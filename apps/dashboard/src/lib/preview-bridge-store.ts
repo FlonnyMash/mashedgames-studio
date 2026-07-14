@@ -5,6 +5,7 @@ import {
   listConfiguredAssetUploads,
   type GameConfig,
   type TemplateFieldDescriptor,
+  type UIModule,
 } from "@mashedgames/shared";
 import { create } from "state";
 
@@ -15,18 +16,29 @@ type PreviewBridgeStore = {
   runtimeAssets: Record<string, string>;
   /** The active template's dynamic fields — needed to resolve image-field texture keys. */
   templateFields: TemplateFieldDescriptor[];
+  /**
+   * The active template's declared `manifest.supportsUI`. This is the
+   * authoritative source for whether a universal overlay module (Start
+   * Screen, Highscore, Lead Capture, Countdown Timer) may render — the
+   * overlay shell and the config panels must consult this before trusting
+   * any raw GameConfig `showXxx` boolean.
+   */
+  supportsUI: UIModule[];
   setMessenger: (messenger: PreviewMessenger | null) => void;
   setRuntimeAssets: (assets: Record<string, string>) => void;
   setTemplateFields: (fields: TemplateFieldDescriptor[]) => void;
+  setSupportsUI: (modules: UIModule[]) => void;
 };
 
 export const usePreviewBridgeStore = create<PreviewBridgeStore>((set) => ({
   messenger: null,
   runtimeAssets: {},
   templateFields: [],
+  supportsUI: [],
   setMessenger: (messenger) => set({ messenger }),
   setRuntimeAssets: (runtimeAssets) => set({ runtimeAssets }),
   setTemplateFields: (templateFields) => set({ templateFields }),
+  setSupportsUI: (supportsUI) => set({ supportsUI }),
 }));
 
 export function pushRuntimeAssetsToPreview(): void {

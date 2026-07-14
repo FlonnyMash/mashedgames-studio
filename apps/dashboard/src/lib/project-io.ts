@@ -48,7 +48,7 @@ import {
   isParentTemplateInLibrary,
   readParentManifest,
 } from "@/lib/project-parent-config";
-import { readTemplateFields } from "@/lib/template-fields";
+import { readTemplateFields, readTemplateSupportsUI } from "@/lib/template-fields";
 
 export type ProjectIoResult<T> =
   | { ok: true; data: T }
@@ -446,6 +446,7 @@ export async function loadProject(
     parentLock: ParentLockSnapshot | null;
     runtimeAssets: Record<string, string>;
     templateFields: ReturnType<typeof readTemplateFields>;
+    supportsUI: ReturnType<typeof readTemplateSupportsUI>;
   }>
 > {
   try {
@@ -515,6 +516,7 @@ export async function loadProject(
         parentLock,
         runtimeAssets: normalizedManifest.runtimeAssets ?? {},
         templateFields: readTemplateFields(normalizedManifest.parentTemplateId),
+        supportsUI: readTemplateSupportsUI(normalizedManifest.parentTemplateId),
       },
     };
   } catch (error) {
