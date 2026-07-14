@@ -48,6 +48,28 @@ export function NumberFieldInput({
     }
   }, [field, value]);
 
+  const tryCommit = (raw: string): void => {
+    const trimmed = raw.trim();
+    if (trimmed === "" || trimmed === "-") {
+      return;
+    }
+
+    const parsed = Number(trimmed);
+    if (Number.isNaN(parsed)) {
+      return;
+    }
+
+    let next = parsed;
+    if (field.min !== undefined) {
+      next = Math.max(field.min, next);
+    }
+    if (field.max !== undefined) {
+      next = Math.min(field.max, next);
+    }
+
+    onCommit(next);
+  };
+
   const commitDraft = (raw: string): void => {
     const trimmed = raw.trim();
     if (trimmed === "" || trimmed === "-") {
@@ -85,7 +107,11 @@ export function NumberFieldInput({
       step={field.step}
       disabled={disabled}
       value={draft}
-      onChange={(event) => setDraft(event.target.value)}
+      onChange={(event) => {
+        const raw = event.target.value;
+        setDraft(raw);
+        tryCommit(raw);
+      }}
       onBlur={() => commitDraft(draft)}
       onKeyDown={(event) => {
         if (event.key === "Enter") {

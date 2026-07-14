@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import {
   resolveAssetPreviewUrl,
   type AssetPreviewContext,
@@ -178,6 +178,71 @@ function FieldControl({
   }
 }
 
+function splitGroupKey(group: string): { parent: string; child?: string } {
+  const index = group.indexOf("/");
+  if (index === -1) {
+    return { parent: group };
+  }
+  return {
+    parent: group.slice(0, index),
+    child: group.slice(index + 1),
+  };
+}
+
+type NestedGroup = {
+  directFields: TemplateFieldDescriptor[];
+  children: Map<string, TemplateFieldDescriptor[]>;
+  childOrder: string[];
+};
+
+function buildNestedGroups(fields: TemplateFieldDescriptor[]): {
+  ungrouped: TemplateFieldDescriptor[];
+  groups: Map<string, NestedGroup>;
+  groupOrder: string[];
+} {
+  const ungrouped: TemplateFieldDescriptor[] = [];
+  const groups = new Map<string, NestedGroup>();
+  const groupOrder: string[] = [];
+
+  const ensureGroup = (parent: string): NestedGroup => {
+    const existing = groups.get(parent);
+    if (existing) {
+      return existing;
+    }
+    const created: NestedGroup = {
+      directFields: [],
+      children: new Map(),
+      childOrder: [],
+    };
+    groups.set(parent, created);
+    groupOrder.push(parent);
+    return created;
+  };
+
+  for (const field of fields) {
+    if (!field.group) {
+      ungrouped.push(field);
+      continue;
+    }
+
+    const { parent, child } = splitGroupKey(field.group);
+    const group = ensureGroup(parent);
+
+    if (child) {
+      if (!group.children.has(child)) {
+        group.children.set(child, []);
+        group.childOrder.push(child);
+      }
+      group.children.get(child)?.push(field);
+      continue;
+    }
+
+    group.directFields.push(field);
+  }
+
+  return { ungrouped, groups, groupOrder };
+}
+
 function FieldGroupSection({
   label,
   fields,
@@ -186,6 +251,9 @@ function FieldGroupSection({
   onFieldChange,
   onImageFile,
   assetPreviewContext,
+  defaultOpen = true,
+  nested = false,
+  children,
 }: {
   label: string;
   fields: TemplateFieldDescriptor[];
@@ -194,16 +262,32 @@ function FieldGroupSection({
   onFieldChange: DynamicTemplateFieldPanelProps["onFieldChange"];
   onImageFile: DynamicTemplateFieldPanelProps["onImageFile"];
   assetPreviewContext?: AssetPreviewContext;
+  defaultOpen?: boolean;
+  nested?: boolean;
+  children?: ReactNode;
 }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+    <div
+      className={[
+        "overflow-hidden rounded-xl border border-zinc-200 bg-white",
+        nested ? "border-zinc-100 bg-zinc-50/60" : "",
+      ].join(" ")}
+    >
       <div
-        className="flex cursor-pointer select-none items-center justify-between px-4 py-3"
-        onClick={() => setOpen((o) => !o)}
+        className={[
+          "flex cursor-pointer select-none items-center justify-between",
+          nested ? "px-3 py-2" : "px-4 py-3",
+        ].join(" ")}
+        onClick={() => setOpen((current) => !current)}
       >
-        <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        <span
+          className={[
+            "font-semibold uppercase tracking-wider text-zinc-500",
+            nested ? "text-[11px]" : "text-xs",
+          ].join(" ")}
+        >
           {label}
         </span>
         <svg
@@ -223,7 +307,13 @@ function FieldGroupSection({
       </div>
 
       {open && (
-        <div className="space-y-4 border-t border-zinc-100 px-4 pb-4 pt-3">
+        <div
+          className={[
+            nested
+              ? "space-y-3 border-t border-zinc-100 px-3 pb-3 pt-2"
+              : "space-y-4 border-t border-zinc-100 px-4 pb-4 pt-3",
+          ].join(" ")}
+        >
           {fields.map((field) => (
             <FieldControl
               key={field.key}
@@ -235,6 +325,7 @@ function FieldGroupSection({
               assetPreviewContext={assetPreviewContext}
             />
           ))}
+          {children}
         </div>
       )}
     </div>
@@ -253,18 +344,7 @@ export function DynamicTemplateFieldPanel({
     return null;
   }
 
-  const grouped = new Map<string, TemplateFieldDescriptor[]>();
-  const ungrouped: TemplateFieldDescriptor[] = [];
-
-  for (const field of fields) {
-    if (!field.group) {
-      ungrouped.push(field);
-      continue;
-    }
-    const bucket = grouped.get(field.group) ?? [];
-    bucket.push(field);
-    grouped.set(field.group, bucket);
-  }
+  const { ungrouped, groups, groupOrder } = buildNestedGroups(fields);
 
   return (
     <div className="space-y-3">
@@ -284,18 +364,44 @@ export function DynamicTemplateFieldPanel({
         </div>
       )}
 
-      {Array.from(grouped.entries()).map(([group, groupFields]) => (
-        <FieldGroupSection
-          key={group}
-          label={humanizeGroupLabel(group)}
-          fields={groupFields}
-          values={values}
-          disabled={disabled}
-          onFieldChange={onFieldChange}
-          onImageFile={onImageFile}
-          assetPreviewContext={assetPreviewContext}
-        />
-      ))}
+      {groupOrder.map((groupKey) => {
+        const group = groups.get(groupKey);
+        if (!group) {
+          return null;
+        }
+
+        return (
+          <FieldGroupSection
+            key={groupKey}
+            label={humanizeGroupLabel(groupKey)}
+            fields={group.directFields}
+            values={values}
+            disabled={disabled}
+            onFieldChange={onFieldChange}
+            onImageFile={onImageFile}
+            assetPreviewContext={assetPreviewContext}
+          >
+            {group.childOrder.length > 0 ? (
+              <div className="space-y-2">
+                {group.childOrder.map((childKey) => (
+                  <FieldGroupSection
+                    key={`${groupKey}/${childKey}`}
+                    label={humanizeGroupLabel(childKey)}
+                    fields={group.children.get(childKey) ?? []}
+                    values={values}
+                    disabled={disabled}
+                    onFieldChange={onFieldChange}
+                    onImageFile={onImageFile}
+                    assetPreviewContext={assetPreviewContext}
+                    defaultOpen={false}
+                    nested
+                  />
+                ))}
+              </div>
+            ) : null}
+          </FieldGroupSection>
+        );
+      })}
     </div>
   );
 }
