@@ -12,6 +12,8 @@
     "ctaLabel": "Start Game",
     "playerSpeed": 420,
     "gameDurationSeconds": 60,
+    "previewWidth": 800,
+    "previewHeight": 600,
     "startScreenTitleColor": "#ffffff",
     "startScreenTitleBold": false,
     "startScreenTitleItalic": false,

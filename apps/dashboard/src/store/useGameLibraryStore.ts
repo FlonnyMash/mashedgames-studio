@@ -3,7 +3,16 @@
 import { supabase } from "@/lib/supabaseClient";
 import { create } from "state";
 
+/** A claimed game record owned by the current user (public.games). */
+export type ClaimedGame = {
+  id: string;
+  slug: string;
+  sourceTemplateId: string | null;
+};
+
 type GameLibraryStore = {
+  /** Full claimed game records for the current user. */
+  games: ClaimedGame[];
   /** Template IDs the user has claimed into public.games. */
   claimedTemplateIds: Set<string>;
   isLoading: boolean;
@@ -14,7 +23,11 @@ type GameLibraryStore = {
   reset: () => void;
 };
 
-const INITIAL: Pick<GameLibraryStore, "claimedTemplateIds" | "isLoading" | "error"> = {
+const INITIAL: Pick<
+  GameLibraryStore,
+  "games" | "claimedTemplateIds" | "isLoading" | "error"
+> = {
+  games: [],
   claimedTemplateIds: new Set(),
   isLoading: false,
   error: null,
@@ -31,19 +44,24 @@ export const useGameLibraryStore = create<GameLibraryStore>((set, get) => ({
     try {
       const { data, error } = await supabase
         .from("games")
-        .select("source_template_id")
-        .eq("owner_id", userId)
-        .not("source_template_id", "is", null);
+        .select("id, slug, source_template_id")
+        .eq("owner_id", userId);
 
       if (error) throw error;
 
+      const games: ClaimedGame[] = (data ?? []).map((row) => ({
+        id: row.id,
+        slug: row.slug,
+        sourceTemplateId: row.source_template_id,
+      }));
+
       const ids = new Set(
-        (data ?? [])
-          .map((row) => row.source_template_id)
+        games
+          .map((game) => game.sourceTemplateId)
           .filter((id): id is string => typeof id === "string"),
       );
 
-      set({ claimedTemplateIds: ids, isLoading: false });
+      set({ games, claimedTemplateIds: ids, isLoading: false });
     } catch (err) {
       set({
         isLoading: false,
@@ -58,5 +76,5 @@ export const useGameLibraryStore = create<GameLibraryStore>((set, get) => ({
     }));
   },
 
-  reset: () => set({ ...INITIAL }),
+  reset: () => set({ ...INITIAL, claimedTemplateIds: new Set() }),
 }));

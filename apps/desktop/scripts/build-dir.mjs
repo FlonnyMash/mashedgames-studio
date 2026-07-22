@@ -47,6 +47,7 @@ const SOURCE_FILES = [
   "export-ipc-utils.js",
   "flat-config-ipc-utils.js",
   "admin-ipc-utils.js",
+  "projects-ipc-utils.js",
   "updater-ipc-utils.js",
   "template-update-ipc-utils.js",
   "splash.html",

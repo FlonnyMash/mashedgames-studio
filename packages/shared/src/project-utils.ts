@@ -21,7 +21,7 @@ export function slugifyProjectId(displayName: string): string {
 
 export function enrichClientMeta(
   config: GameConfig,
-  project: Pick<GameProjectManifest, "projectId" | "parentTemplateId"> & {
+  project: Pick<GameProjectManifest, "projectId" | "parentTemplateId" | "gameId"> & {
     parentPinnedVersion?: string;
   },
 ): GameConfig {
@@ -29,6 +29,7 @@ export function enrichClientMeta(
     ...config,
     activeTemplateId: project.parentTemplateId,
     projectId: project.projectId,
+    gameId: project.gameId ?? config.gameId,
     parentTemplateId: project.parentTemplateId,
     parentPinnedVersion:
       project.parentPinnedVersion ?? config.parentPinnedVersion,
@@ -37,7 +38,7 @@ export function enrichClientMeta(
 }
 
 export function buildInitialClientPayload(
-  project: Pick<GameProjectManifest, "projectId" | "parentTemplateId">,
+  project: Pick<GameProjectManifest, "projectId" | "parentTemplateId" | "gameId">,
   config: GameConfig,
   parentPinnedVersion: string,
 ): ClientProjectPayload {

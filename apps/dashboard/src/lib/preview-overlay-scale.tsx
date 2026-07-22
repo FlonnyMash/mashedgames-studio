@@ -8,28 +8,33 @@ import {
   type RefObject,
 } from "react";
 
-/** Logical overlay coordinate space — matches the dashboard phone mockup design size. */
-export const PREVIEW_OVERLAY_DESIGN_WIDTH = 390;
-export const PREVIEW_OVERLAY_DESIGN_HEIGHT = 844;
+/**
+ * Fallback logical overlay coordinate space. The live design size is driven by
+ * the configured preview resolution; these constants are only used when a
+ * caller does not supply explicit dimensions.
+ */
+export const PREVIEW_OVERLAY_DESIGN_WIDTH = 800;
+export const PREVIEW_OVERLAY_DESIGN_HEIGHT = 600;
 
 const SCALE_EPSILON = 0.005;
 
 export function computePreviewOverlayScale(
   width: number,
   height: number,
+  designWidth: number = PREVIEW_OVERLAY_DESIGN_WIDTH,
+  designHeight: number = PREVIEW_OVERLAY_DESIGN_HEIGHT,
 ): number {
-  if (width < 1 || height < 1) {
+  if (width < 1 || height < 1 || designWidth < 1 || designHeight < 1) {
     return 1;
   }
 
-  return Math.min(
-    width / PREVIEW_OVERLAY_DESIGN_WIDTH,
-    height / PREVIEW_OVERLAY_DESIGN_HEIGHT,
-  );
+  return Math.min(width / designWidth, height / designHeight);
 }
 
 export function usePreviewOverlayScale(
   screenRef: RefObject<HTMLElement | null>,
+  designWidth: number = PREVIEW_OVERLAY_DESIGN_WIDTH,
+  designHeight: number = PREVIEW_OVERLAY_DESIGN_HEIGHT,
 ): number {
   const [scale, setScale] = useState(1);
 
@@ -43,6 +48,8 @@ export function usePreviewOverlayScale(
       const next = computePreviewOverlayScale(
         element.clientWidth,
         element.clientHeight,
+        designWidth,
+        designHeight,
       );
       setScale((current) =>
         Math.abs(current - next) < SCALE_EPSILON ? current : next,
@@ -54,7 +61,7 @@ export function usePreviewOverlayScale(
     update();
 
     return () => observer.disconnect();
-  }, [screenRef]);
+  }, [screenRef, designWidth, designHeight]);
 
   return scale;
 }

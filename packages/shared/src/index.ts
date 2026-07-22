@@ -142,6 +142,25 @@ export {
 } from "./game-claim";
 
 export {
+  LEAD_WEBHOOK_EVENT,
+  WEBHOOK_SIGNATURE_HEADER,
+  WEBHOOK_TIMESTAMP_HEADER,
+  LeadSubmitPayloadSchema,
+  LeadWebhookDataSchema,
+  LeadWebhookEventSchema,
+  buildLeadWebhookEvent,
+  parseLeadSubmitPayload,
+  type LeadSubmitPayload,
+  type LeadWebhookData,
+  type LeadWebhookEvent,
+} from "./webhook-contract";
+
+export {
+  buildSignedWebhookHeaders,
+  signWebhookPayload,
+} from "./webhook-sign";
+
+export {
   PROJECT_ID_PATTERN,
   ClientProjectPayloadSchema,
   GameProjectManifestSchema,

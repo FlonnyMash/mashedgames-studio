@@ -10,6 +10,8 @@
   "ctaLabel": "SPIN",
   "playerSpeed": 320,
   "gameDurationSeconds": 60,
+  "previewWidth": 800,
+  "previewHeight": 600,
   "startScreenTitleColor": "#ffffff",
   "startScreenTitleBold": false,
   "startScreenTitleItalic": false,

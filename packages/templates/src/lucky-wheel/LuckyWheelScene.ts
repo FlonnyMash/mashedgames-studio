@@ -284,7 +284,11 @@ export class LuckyWheelScene extends Phaser.Scene {
   }
 
   create(data?: LuckyWheelSceneInitData): void {
-    this.segments = this.computeSegments(this.runtimeConfig);
+    // Seed segments from the incoming config so the very first render uses the
+    // configured prizes/weights. `runtimeConfig` is still defaults here; the
+    // real config isn't applied until applyConfig() further below (or async via
+    // loadStandaloneConfig when no config was passed).
+    this.segments = this.computeSegments(data?.config ?? this.runtimeConfig);
     this.createTextures();
 
     this.wheelGraphics = this.add.graphics();

@@ -1,3 +1,4 @@
+import { Toaster } from "sonner";
 import { OverlayLayer } from "@/components/studio/overlays/OverlayLayer";
 import {
   PreviewOverlayRoot,
@@ -19,7 +20,11 @@ export function DemoPlayerApp({ payload }: DemoPlayerAppProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const screenRef = useRef<HTMLDivElement>(null);
   const messenger = useMemo(() => createDashboardMessenger("studio"), []);
-  const overlayScale = usePreviewOverlayScale(screenRef);
+  const overlayScale = usePreviewOverlayScale(
+    screenRef,
+    payload.config.previewWidth,
+    payload.config.previewHeight,
+  );
 
   const templateId = payload.templateId as GameTemplateId;
   const iframeSrc = useMemo(() => {
@@ -135,6 +140,7 @@ export function DemoPlayerApp({ payload }: DemoPlayerAppProps) {
           <OverlayLayer messenger={messenger} />
         </PreviewOverlayRoot>
       </div>
+      <Toaster position="top-center" richColors />
     </div>
   );
 }

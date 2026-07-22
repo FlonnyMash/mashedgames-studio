@@ -25,6 +25,11 @@ export default defineConfig({
     "process.env.NEXT_PUBLIC_GAME_ENGINE_URL": JSON.stringify(""),
     "process.env.NEXT_PUBLIC_WORKSPACE_DESKTOP": JSON.stringify(""),
     "process.env.NEXT_PUBLIC_APP_MODE": JSON.stringify("studio"),
+    // Leads worker base URL — inlined so the published demo bundle can POST
+    // captured leads without a live Next.js runtime.
+    "process.env.NEXT_PUBLIC_WORKER_URL": JSON.stringify(
+      process.env.NEXT_PUBLIC_WORKER_URL ?? "",
+    ),
   },
   server: {
     fs: {

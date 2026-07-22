@@ -29,6 +29,7 @@ const TEMPLATE_TEXTURE_FIELD_KEYS = [
 const GAME_CONFIG_TOP_LEVEL_KEYS = new Set([
   "activeTemplateId",
   "projectId",
+  "gameId",
   "schemaVersion",
   "appMode",
   "themeColor",
@@ -201,10 +202,14 @@ function normalizeConfigFields(raw) {
 
 function normalizeDemoConfig(raw, templateSlug) {
   const hoisted = normalizeConfigFields(raw);
+  // Optional Supabase games.id to bake into the published demo so its
+  // lead-capture overlay attributes submissions to the right game.
+  const bakedGameId = process.env.MASHED_DEMO_GAME_ID?.trim();
   return {
     ...hoisted,
     activeTemplateId: templateSlug,
     appMode: "studio",
+    ...(bakedGameId ? { gameId: bakedGameId } : {}),
   };
 }
 

@@ -17,8 +17,6 @@ import {
   EXPAND_BUTTON_CLASSES,
   THEATER_CLOSE_BUTTON_CLASSES,
   THEATER_OVERLAY_CLASSES,
-  THEATER_PHONE_SHADOW_EXPANDED,
-  THEATER_PHONE_SHADOW_NORMAL,
   useTheaterMode,
 } from "@/lib/theater-preview-styles";
 import { cn } from "@/lib/utils";
@@ -37,9 +35,6 @@ import {
   type ReactNode,
 } from "react";
 
-const PHONE_FRAME_WIDTH = 390;
-const PHONE_FRAME_HEIGHT = 844;
-
 export interface DevicePreviewProps {
   appMode: AppMode;
   initialTemplateId: GameTemplateId;
@@ -57,7 +52,7 @@ export function DevicePreview({
 }: DevicePreviewProps) {
   const suspended = previewSuspended ?? suspendedProp;
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const phoneScreenRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const { isExpanded, expand, close } = useTheaterMode();
 
@@ -70,17 +65,26 @@ export function DevicePreview({
     [close],
   );
 
-  const [phoneFrameSize, setPhoneFrameSize] = useState({
-    width: PHONE_FRAME_WIDTH,
-    height: PHONE_FRAME_HEIGHT,
-  });
+  // Configured embed resolution (px). Drives the preview viewport so it mirrors
+  // how the game will be embedded on a client site.
+  const previewWidth = useConfigStore((state) => state.config.previewWidth);
+  const previewHeight = useConfigStore((state) => state.config.previewHeight);
+
+  // Visual fit-to-shrink scale: 1:1 when the resolution fits the panel, scaled
+  // down (never up, unless expanded) when it exceeds the available space.
+  const [scale, setScale] = useState(1);
+
   const messenger = useMemo(
     () => createDashboardMessenger(appMode),
     [appMode],
   );
 
   const activeTemplateId = useConfigStore((state) => state.selectedTemplateId);
-  const overlayScale = usePreviewOverlayScale(phoneScreenRef);
+  const overlayScale = usePreviewOverlayScale(
+    stageRef,
+    previewWidth,
+    previewHeight,
+  );
 
   const iframeSrc = useMemo(() => {
     return resolveGameEnginePreviewUrl(activeTemplateId, appMode);
@@ -163,9 +167,9 @@ export function DevicePreview({
       return;
     }
 
-    const screen = phoneScreenRef.current;
+    const stage = stageRef.current;
     const iframe = iframeRef.current;
-    if (!screen || !iframe) return;
+    if (!stage || !iframe) return;
 
     const notifyEngineResize = () => {
       try {
@@ -178,7 +182,7 @@ export function DevicePreview({
     const observer = new ResizeObserver(() => {
       notifyEngineResize();
     });
-    observer.observe(screen);
+    observer.observe(stage);
 
     const onLoad = () => {
       notifyEngineResize();
@@ -193,31 +197,28 @@ export function DevicePreview({
       observer.disconnect();
       iframe.removeEventListener("load", onLoad);
     };
-  }, [iframeSrc, suspended]);
+  }, [iframeSrc, suspended, previewWidth, previewHeight]);
 
   useEffect(() => {
     const container = previewContainerRef.current;
     if (!container) return;
 
-    const updatePhoneFrameSize = () => {
+    const updateScale = () => {
       const { width, height } = container.getBoundingClientRect();
-      const scale = Math.min(
-        width / PHONE_FRAME_WIDTH,
-        height / PHONE_FRAME_HEIGHT,
+      const next = Math.min(
+        width / previewWidth,
+        height / previewHeight,
         isExpanded ? Number.POSITIVE_INFINITY : 1,
       );
-      setPhoneFrameSize({
-        width: Math.floor(PHONE_FRAME_WIDTH * scale),
-        height: Math.floor(PHONE_FRAME_HEIGHT * scale),
-      });
+      setScale(Number.isFinite(next) && next > 0 ? next : 1);
     };
 
-    const observer = new ResizeObserver(updatePhoneFrameSize);
+    const observer = new ResizeObserver(updateScale);
     observer.observe(container);
-    updatePhoneFrameSize();
+    updateScale();
 
     return () => observer.disconnect();
-  }, [isExpanded]);
+  }, [isExpanded, previewWidth, previewHeight]);
 
   return (
     <div
@@ -271,37 +272,31 @@ export function DevicePreview({
         ) : null}
 
         <div
-          className={cn(
-            "relative shrink-0 transition-all duration-300",
-            !isExpanded && "scale-[1.02]",
-          )}
+          className="relative shrink-0"
           style={{
-            width: phoneFrameSize.width,
-            height: phoneFrameSize.height,
+            width: Math.floor(previewWidth * scale),
+            height: Math.floor(previewHeight * scale),
           }}
         >
           <div
-            className={cn(
-              "absolute inset-0 rounded-[2.5rem] bg-zinc-900 p-3 transition-all duration-300",
-              isExpanded ? THEATER_PHONE_SHADOW_EXPANDED : THEATER_PHONE_SHADOW_NORMAL,
-            )}
+            ref={stageRef}
+            className="absolute top-0 left-0 origin-top-left overflow-hidden rounded-lg bg-black shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)] ring-1 ring-black/10"
+            style={{
+              width: previewWidth,
+              height: previewHeight,
+              transform: `scale(${scale})`,
+            }}
           >
-            <div className="absolute top-0 left-1/2 z-10 h-6 w-28 -translate-x-1/2 rounded-b-2xl bg-zinc-900" />
-            <div
-              ref={phoneScreenRef}
-              className="relative h-full min-h-0 overflow-hidden rounded-[2rem] bg-black"
-            >
-              <iframe
-                ref={iframeRef}
-                src={iframeSrc}
-                title="Game preview"
-                className="block h-full min-h-[1px] w-full min-w-[1px] border-0"
-              />
-              <PreviewOverlayRoot scale={overlayScale}>
-                <OverlayLayer messenger={messenger} />
-              </PreviewOverlayRoot>
-              {overlaySlot}
-            </div>
+            <iframe
+              ref={iframeRef}
+              src={iframeSrc}
+              title="Game preview"
+              className="block h-full min-h-px w-full min-w-px border-0"
+            />
+            <PreviewOverlayRoot scale={overlayScale}>
+              <OverlayLayer messenger={messenger} />
+            </PreviewOverlayRoot>
+            {overlaySlot}
           </div>
         </div>
       </div>

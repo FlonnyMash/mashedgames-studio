@@ -317,6 +317,8 @@ export async function createProject(input: {
   clientName?: string;
   clientLogo?: { buffer: Buffer; fileName: string };
   ownerId: string;
+  /** Supabase `public.games.id` to persist so captured leads attribute correctly. */
+  gameId?: string;
 }): Promise<
   ProjectIoResult<{
     manifest: GameProjectManifest;
@@ -384,7 +386,7 @@ export async function createProject(input: {
   let runtimeAssets: Record<string, string> | undefined;
 
   let client = buildInitialClientPayload(
-    { projectId, parentTemplateId },
+    { projectId, parentTemplateId, gameId: input.gameId },
     parentConfig,
     manifest.version,
   );
@@ -416,6 +418,7 @@ export async function createProject(input: {
     lastParentAckAt: now,
     createdAt: now,
     mode: "configurator" as SaveMode,
+    ...(input.gameId ? { gameId: input.gameId } : {}),
     ...(runtimeAssets ? { runtimeAssets } : {}),
   };
 

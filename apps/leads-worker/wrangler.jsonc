@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mashedgames-leads-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-09-23",
+  "observability": {
+    "enabled": true
+  },
+  // Non-secret configuration. Secrets (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+  // are provisioned out-of-band via `wrangler secret put <NAME>` and must never
+  // be committed here.
+  "vars": {
+    // Origin allowed to call the ingestion endpoint. "*" is acceptable because
+    // the route is public (games run on arbitrary client domains) and carries
+    // no credentials. Tighten per-deployment if desired.
+    "ALLOWED_ORIGIN": "*"
+  }
+}

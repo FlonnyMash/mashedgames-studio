@@ -1,11 +1,17 @@
 import { assertClientLogoWithinSize } from "@/lib/project-assets";
 import { createProject } from "@/lib/project-io";
+import { ensureClaimedGameRow } from "@/lib/games-claim";
 import {
+  createAnonSupabaseClient,
   extractBearerToken,
   getSupabaseRuntimeEnv,
   verifyAuthenticatedCaller,
 } from "@/lib/supabase-auth";
-import { normalizeTemplateId, type GameTemplateId } from "@mashedgames/shared";
+import {
+  normalizeTemplateId,
+  slugifyProjectId,
+  type GameTemplateId,
+} from "@mashedgames/shared";
 import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
@@ -119,14 +125,37 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const caller = await verifyAuthenticatedCaller(
-      bearerToken,
-      getSupabaseRuntimeEnv(),
-    );
+    const runtimeEnv = getSupabaseRuntimeEnv();
+    const caller = await verifyAuthenticatedCaller(bearerToken, runtimeEnv);
     if ("error" in caller) {
       return Response.json(
         { ok: false, error: caller.error },
         { status: caller.status },
+      );
+    }
+
+    // Resolve (idempotently) the Supabase games.id for this owner + template so
+    // the project persists a durable link. Non-fatal: a lookup failure must not
+    // block project creation — the project is simply created without a gameId.
+    let gameId: string | undefined;
+    try {
+      const supabase = createAnonSupabaseClient(runtimeEnv, bearerToken);
+      const gameResult = await ensureClaimedGameRow(supabase, {
+        ownerId: caller.userId,
+        slug: body.projectId?.trim() || slugifyProjectId(body.displayName),
+        templateId: requestedTemplateId,
+      });
+      if (gameResult.ok) {
+        gameId = gameResult.game.id;
+      } else {
+        console.warn(
+          `[projects/create] Could not resolve gameId (non-fatal): ${gameResult.error}`,
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "[projects/create] gameId resolution threw (non-fatal):",
+        error instanceof Error ? error.message : String(error),
       );
     }
 
@@ -137,6 +166,7 @@ export async function POST(request: NextRequest) {
       clientName: body.clientName,
       clientLogo,
       ownerId: caller.userId,
+      gameId,
     });
 
     if (!result.ok) {

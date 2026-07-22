@@ -5,7 +5,9 @@
   "exports": {
     ".": "./src/index.ts",
     "./env-schema": "./src/env-schema.ts",
-    "./auth-jwt": "./src/auth-jwt.ts"
+    "./auth-jwt": "./src/auth-jwt.ts",
+    "./webhook-contract": "./src/webhook-contract.ts",
+    "./webhook-sign": "./src/webhook-sign.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

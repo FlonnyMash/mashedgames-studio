@@ -29,6 +29,8 @@ export const GameProjectManifestSchema = z.object({
   runtimeAssets: z.record(z.string(), z.string()).optional(),
   /** Supabase auth user ID that owns this project. Absent on legacy saves. */
   ownerId: z.string().uuid().optional(),
+  /** Supabase `public.games.id` linked to this project. Absent on legacy saves. */
+  gameId: z.string().uuid().optional(),
   /** HMAC-SHA256 over canonical client.json payload + ownerId. Absent on legacy saves. */
   signature: z.string().min(1).optional(),
 }).strip();

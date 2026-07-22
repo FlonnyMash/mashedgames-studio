@@ -14,6 +14,11 @@ const hexColorSchema = z
 export const GameConfigSchema = z.object({
   activeTemplateId: z.string().min(1),
   projectId: z.string().optional(),
+  // Supabase `public.games.id` for this project. Non-secret: it lets the
+  // runtime overlay attribute captured leads to the right game when POSTing to
+  // the leads worker. The webhook URL/secret stay dedicated `public.games`
+  // columns and never enter this flat config.
+  gameId: z.string().uuid().optional(),
   schemaVersion: z.string(),
   appMode: AppModeSchema.optional(),
   themeColor: hexColorSchema,
@@ -26,6 +31,10 @@ export const GameConfigSchema = z.object({
   ctaLabel: z.string(),
   playerSpeed: z.number().min(0),
   gameDurationSeconds: z.number().min(1),
+  // Studio preview viewport (px). Mirrors the resolution the game will be
+  // embedded at on a client site. Flat primitives only — no nested object.
+  previewWidth: z.number().int().positive().default(800),
+  previewHeight: z.number().int().positive().default(600),
   parentTemplateId: z.string().optional(),
   parentPinnedVersion: z.string().optional(),
   lastParentSyncAt: z.string().optional(),
@@ -105,6 +114,8 @@ export const DEFAULT_GAME_CONFIG: GameConfig = {
   ctaLabel: "Start Game",
   playerSpeed: 320,
   gameDurationSeconds: 60,
+  previewWidth: 800,
+  previewHeight: 600,
   startScreenTitleColor: "#ffffff",
   startScreenTitleBold: false,
   startScreenTitleItalic: false,

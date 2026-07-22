@@ -3,6 +3,7 @@
 import { CloudflareDeployButton } from "@/components/configurator/CloudflareDeployButton";
 import { ExportGameButton } from "@/components/configurator/ExportGameButton";
 import { ExitConfiguratorProjectButton } from "@/components/configurator/ExitConfiguratorProjectButton";
+import { WebhookIntegrationsSection } from "@/components/integrations/WebhookIntegrationsSection";
 import { WorkspaceActionToolbar } from "@/components/shell/WorkspaceActionToolbar";
 import { useConfiguratorStore } from "@mashedgames/configurator-engine";
 import { useMemo } from "react";
@@ -51,6 +52,7 @@ export function ConfiguratorToolsShell({
       <div className="flex-1 space-y-8 overflow-y-auto px-6 py-6">
         <ExportGameButton />
         <CloudflareDeployButton />
+        <WebhookIntegrationsSection />
         <ExitConfiguratorProjectButton />
       </div>
     </aside>

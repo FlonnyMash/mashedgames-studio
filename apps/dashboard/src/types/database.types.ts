@@ -67,6 +67,8 @@ export type Database = {
           slug: string
           source_template_id: string | null
           updated_at: string
+          webhook_secret: string
+          webhook_url: string | null
         }
         Insert: {
           config: Json
@@ -76,6 +78,8 @@ export type Database = {
           slug: string
           source_template_id?: string | null
           updated_at?: string
+          webhook_secret?: string
+          webhook_url?: string | null
         }
         Update: {
           config?: Json
@@ -85,6 +89,8 @@ export type Database = {
           slug?: string
           source_template_id?: string | null
           updated_at?: string
+          webhook_secret?: string
+          webhook_url?: string | null
         }
         Relationships: [
           {

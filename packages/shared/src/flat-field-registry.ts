@@ -93,6 +93,11 @@ export type GroupDefinition = {
 
 export const GROUP_REGISTRY: GroupDefinition[] = [
   {
+    id: "resolution",
+    label: "Preview Resolution",
+    surface: "studio",
+  },
+  {
     id: "branding",
     label: "Branding",
     surface: "both",
@@ -131,6 +136,27 @@ export const GROUP_REGISTRY: GroupDefinition[] = [
 ];
 
 export const FLAT_FIELD_REGISTRY: FlatFieldDefinition[] = [
+  // ── Preview Resolution ────────────────────────────────────────────────────
+  {
+    key: "previewWidth",
+    type: "number",
+    surface: "studio",
+    label: "Width (px)",
+    min: 240,
+    max: 3840,
+    step: 10,
+    group: "resolution",
+  },
+  {
+    key: "previewHeight",
+    type: "number",
+    surface: "studio",
+    label: "Height (px)",
+    min: 240,
+    max: 3840,
+    step: 10,
+    group: "resolution",
+  },
   // ── Branding ──────────────────────────────────────────────────────────────
   {
     key: "themeColor",
