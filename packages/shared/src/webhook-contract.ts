@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PrizeTierEnum } from "./prize-tier";
 
 /**
  * Webhook Dispatcher contracts.
@@ -29,7 +30,7 @@ export const LeadSubmitPayloadSchema = z.object({
   gameId: z.string().uuid(),
   email: z.string().email(),
   name: z.string().max(200).optional(),
-  prizeTier: z.string().max(200).optional(),
+  prizeTier: PrizeTierEnum.optional(),
   sourceDomain: z.string().max(255).optional(),
 });
 
@@ -43,7 +44,7 @@ export const LeadWebhookDataSchema = z.object({
   email: z.string().email(),
   gameId: z.string().uuid(),
   name: z.string().optional(),
-  prizeTier: z.string().optional(),
+  prizeTier: PrizeTierEnum.optional(),
   sourceDomain: z.string().optional(),
   timestamp: z.string().datetime(),
 });

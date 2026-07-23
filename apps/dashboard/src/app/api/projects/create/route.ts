@@ -1,6 +1,6 @@
 import { assertClientLogoWithinSize } from "@/lib/project-assets";
 import { createProject } from "@/lib/project-io";
-import { ensureClaimedGameRow } from "@/lib/games-claim";
+import { ensureClaimedGameRow, resolveSourceTemplateId } from "@/lib/games-claim";
 import {
   createAnonSupabaseClient,
   extractBearerToken,
@@ -140,10 +140,21 @@ export async function POST(request: NextRequest) {
     let gameId: string | undefined;
     try {
       const supabase = createAnonSupabaseClient(runtimeEnv, bearerToken);
+
+      // parentTemplateId is the engine template slug (e.g. "lucky-wheel"), but
+      // games.source_template_id is a uuid FK to public.templates(id). Resolve
+      // the slug to the registry uuid; if the template isn't published to the
+      // registry, fall back to undefined so the games row is still created
+      // (webhooks work) — just without the storefront ownership link.
+      const sourceTemplateId = await resolveSourceTemplateId(
+        supabase,
+        requestedTemplateId,
+      );
+
       const gameResult = await ensureClaimedGameRow(supabase, {
         ownerId: caller.userId,
         slug: body.projectId?.trim() || slugifyProjectId(body.displayName),
-        templateId: requestedTemplateId,
+        templateId: sourceTemplateId,
       });
       if (gameResult.ok) {
         gameId = gameResult.game.id;

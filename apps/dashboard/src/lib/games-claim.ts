@@ -21,6 +21,42 @@ export type EnsureClaimedGameParams = {
   templateId?: string;
 };
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Resolves an engine template identifier to a `public.templates` uuid suitable
+ * for `games.source_template_id`.
+ *
+ * The identifier is normally the template_slug (e.g. "lucky-wheel"), but some
+ * callers may already pass a uuid. Returns undefined when the slug is not in
+ * the registry so the caller can create an unlinked games row rather than fail.
+ *
+ * Shared by the configurator project-creation and Cloudflare deploy routes so
+ * both resolve the same registry uuid for a given engine template.
+ */
+export async function resolveSourceTemplateId(
+  supabase: ReturnType<typeof createAnonSupabaseClient>,
+  templateIdentifier: string,
+): Promise<string | undefined> {
+  const { data, error } = await supabase
+    .from("templates")
+    .select("id")
+    .eq("template_slug", templateIdentifier)
+    .maybeSingle();
+
+  if (!error && data?.id) {
+    return data.id;
+  }
+
+  // Already a uuid (e.g. storefront-originated flows) — use as-is.
+  if (UUID_RE.test(templateIdentifier)) {
+    return templateIdentifier;
+  }
+
+  return undefined;
+}
+
 export type EnsureClaimedGameResult =
   | { ok: true; game: Tables<"games"> }
   | { ok: false; error: string; status: 400 | 500 };

@@ -6,6 +6,8 @@
     ".": "./src/index.ts",
     "./env-schema": "./src/env-schema.ts",
     "./auth-jwt": "./src/auth-jwt.ts",
+    "./prize-tier": "./src/prize-tier.ts",
+    "./coupon-contract": "./src/coupon-contract.ts",
     "./webhook-contract": "./src/webhook-contract.ts",
     "./webhook-sign": "./src/webhook-sign.ts"
   },

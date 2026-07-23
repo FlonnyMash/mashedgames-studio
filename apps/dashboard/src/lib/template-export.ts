@@ -97,16 +97,3 @@ export function mergeFlatConfigIntoTemplateJson(
     ...GameConfigSchema.parse(config),
   };
 }
-
-export async function exportTemplateToDirectory(
-  templateId: string,
-  targetDir: string,
-): Promise<{ ok: true } | { ok: false; error: string; status: number }> {
-  void templateId;
-  void targetDir;
-  return {
-    ok: false,
-    error: "Deploy export is unavailable after reset.",
-    status: 501,
-  };
-}

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const dashboardRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -36,6 +36,12 @@ export function syncEnvLocalFromMonorepoRoot() {
   );
 }
 
-if (import.meta.url === new URL(process.argv[1], "file:").href) {
+// pathToFileURL normalizes Windows backslashes so this guard fires when the
+// script is invoked directly (e.g. `node scripts/sync-env-local.mjs` / predev).
+const isDirectRun =
+  process.argv[1] !== undefined &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+
+if (isDirectRun) {
   syncEnvLocalFromMonorepoRoot();
 }

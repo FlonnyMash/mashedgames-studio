@@ -473,7 +473,7 @@ export function TemplateStorefront({
               ? useLicenseStore.getState().fetchLicenses(userId)
               : Promise.resolve(),
             userId
-              ? useGameLibraryStore.getState().fetchClaimedTemplates(userId)
+              ? useGameLibraryStore.getState().fetchClaimedTemplates()
               : Promise.resolve(),
           ]);
 

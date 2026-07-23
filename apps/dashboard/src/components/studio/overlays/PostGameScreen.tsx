@@ -5,7 +5,11 @@ import { toast } from "sonner";
 import { useGameLifecycleStore } from "@/store/useGameLifecycleStore";
 import { usePreviewBridgeStore } from "@/lib/preview-bridge-store";
 import { getLeadsSubmitUrl } from "@/lib/leads-worker";
-import { LeadSubmitPayloadSchema, UI_MODULE } from "@mashedgames/shared";
+import {
+  LeadSubmitPayloadSchema,
+  normalizePrizeToTier,
+  UI_MODULE,
+} from "@mashedgames/shared";
 import type { TemplateOverlayProps } from "./types";
 import { HighscoreTable } from "./HighscoreTable";
 import { overlayTextStyle } from "./overlayTextStyle";
@@ -72,13 +76,15 @@ export function PostGameScreen({
     if (disabled || isSubmitting || submitted) return;
 
     // Build against the shared contract so the worker receives exactly what it
-    // expects. `gameId` rides in on the flat config; prizeTier/sourceDomain are
-    // best-effort context.
+    // expects. `gameId` rides in on the flat config; sourceDomain is best-effort
+    // context. The engine emits a freeform prize label (`lastReason`, e.g.
+    // "10% Off") which is normalized to the strict PrizeTierEnum before it
+    // touches the wire — the raw label stays only for on-screen display.
     const candidate = {
       gameId: config.gameId,
       email: email.trim(),
       ...(name.trim() ? { name: name.trim() } : {}),
-      ...(lastReason ? { prizeTier: lastReason } : {}),
+      ...(lastReason ? { prizeTier: normalizePrizeToTier(lastReason) } : {}),
       ...(typeof window !== "undefined"
         ? { sourceDomain: window.location.hostname }
         : {}),
@@ -159,6 +165,18 @@ export function PostGameScreen({
               </div>
             ) : (
               <div className="mt-4 space-y-3">
+                {lastReason ? (
+                  <div
+                    className="rounded-lg border px-3 py-2 text-center text-sm font-semibold"
+                    style={{
+                      borderColor: `${accentColor}59`,
+                      backgroundColor: `${accentColor}1f`,
+                      color: accentColor,
+                    }}
+                  >
+                    You won: {lastReason}
+                  </div>
+                ) : null}
                 <input
                   type="text"
                   placeholder={namePlaceholder}

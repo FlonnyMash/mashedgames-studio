@@ -1,6 +1,6 @@
 "use client";
 
-import { supabase } from "@/lib/supabaseClient";
+import { projectApiFetch } from "@/lib/project-api-client";
 import { create } from "state";
 
 /** A claimed game record owned by the current user (public.games). */
@@ -16,63 +16,57 @@ type GameLibraryStore = {
   /** Template IDs the user has claimed into public.games. */
   claimedTemplateIds: Set<string>;
   isLoading: boolean;
+  /** True once a fetch has completed at least once (success or failure). */
+  hasLoaded: boolean;
   error: string | null;
 
-  fetchClaimedTemplates: (userId: string) => Promise<void>;
+  fetchClaimedTemplates: () => Promise<void>;
   addClaimedTemplate: (templateId: string) => void;
   reset: () => void;
 };
 
 const INITIAL: Pick<
   GameLibraryStore,
-  "games" | "claimedTemplateIds" | "isLoading" | "error"
+  "games" | "claimedTemplateIds" | "isLoading" | "hasLoaded" | "error"
 > = {
   games: [],
   claimedTemplateIds: new Set(),
   isLoading: false,
+  hasLoaded: false,
   error: null,
 };
 
 export const useGameLibraryStore = create<GameLibraryStore>((set, get) => ({
   ...INITIAL,
 
-  fetchClaimedTemplates: async (userId: string) => {
+  fetchClaimedTemplates: async () => {
     if (get().isLoading) return;
 
     set({ isLoading: true, error: null });
 
-    try {
-      const { data, error } = await supabase
-        .from("games")
-        .select("id, slug, source_template_id")
-        .eq("owner_id", userId);
+    // Go through the server API (Bearer on web, IPC-proxied in Electron) rather
+    // than the renderer's anon Supabase client: in the Electron desktop context
+    // the renderer holds no session, so a direct public.games query would be
+    // denied by RLS. Owner scoping is enforced server-side by RLS.
+    const result = await projectApiFetch<{ games: ClaimedGame[] }>("/api/games");
 
-      if (error) throw error;
-
-      const games: ClaimedGame[] = (data ?? []).map((row) => ({
-        id: row.id,
-        slug: row.slug,
-        sourceTemplateId: row.source_template_id,
-      }));
-
+    if (result.ok) {
+      const games = result.games;
       const ids = new Set(
         games
           .map((game) => game.sourceTemplateId)
           .filter((id): id is string => typeof id === "string"),
       );
-
-      set({ games, claimedTemplateIds: ids, isLoading: false });
-    } catch (err) {
-      set({
-        isLoading: false,
-        error: err instanceof Error ? err.message : "Failed to load claimed games.",
-      });
+      set({ games, claimedTemplateIds: ids, isLoading: false, hasLoaded: true });
+    } else {
+      set({ isLoading: false, hasLoaded: true, error: result.error });
     }
   },
 
   addClaimedTemplate: (templateId: string) => {
     set((s) => ({
       claimedTemplateIds: new Set([...s.claimedTemplateIds, templateId]),
+      hasLoaded: false,
     }));
   },
 

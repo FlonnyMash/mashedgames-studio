@@ -176,3 +176,74 @@ export function parseSupabaseRuntimeEnv(
     SUPABASE_AUTH_PRIVATE_KEY_P256: emptyToUndefined(env.SUPABASE_AUTH_PRIVATE_KEY_P256),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Cloudflare Pages Direct Upload (server-only) — used by the configurator
+// deploy pipeline to push a finished customer game bundle to the dedicated
+// "client games" Cloudflare Pages project via wrangler. This is separate from
+// the Studio demo pipeline (scripts/deploy-demo.mjs), which uses its own
+// CLOUDFLARE_DEMO_PROJECT_NAME.
+// ---------------------------------------------------------------------------
+
+export const CloudflareDeployEnvSchema = z.object({
+  /** Cloudflare account id that owns the Pages project. */
+  CLOUDFLARE_ACCOUNT_ID: z
+    .string()
+    .min(1, "CLOUDFLARE_ACCOUNT_ID is required."),
+  /** Scoped API token with Cloudflare Pages: Edit permission. */
+  CLOUDFLARE_API_TOKEN: z
+    .string()
+    .min(1, "CLOUDFLARE_API_TOKEN is required."),
+  /**
+   * Target Cloudflare Pages project for finished customer games (the
+   * embeddable bundles). Kept distinct from the demo project so store demos
+   * and client deployments never collide.
+   */
+  CLOUDFLARE_CLIENT_PROJECT_NAME: z
+    .string()
+    .min(1, "CLOUDFLARE_CLIENT_PROJECT_NAME is required."),
+});
+
+export type CloudflareDeployEnv = z.infer<typeof CloudflareDeployEnvSchema>;
+
+export function parseCloudflareDeployEnv(
+  env: Record<string, string | undefined>,
+): CloudflareDeployEnv {
+  return CloudflareDeployEnvSchema.parse({
+    CLOUDFLARE_ACCOUNT_ID: emptyToUndefined(env.CLOUDFLARE_ACCOUNT_ID),
+    CLOUDFLARE_API_TOKEN: emptyToUndefined(env.CLOUDFLARE_API_TOKEN),
+    CLOUDFLARE_CLIENT_PROJECT_NAME: emptyToUndefined(
+      env.CLOUDFLARE_CLIENT_PROJECT_NAME,
+    ),
+  });
+}
+
+/**
+ * Safe variant — never throws. Returns the parsed env on success, or a
+ * user-facing error message describing which Cloudflare vars are missing.
+ */
+export function loadCloudflareDeployEnv(
+  env: Record<string, string | undefined> = process.env,
+):
+  | { ok: true; env: CloudflareDeployEnv }
+  | { ok: false; error: string } {
+  const parsed = CloudflareDeployEnvSchema.safeParse({
+    CLOUDFLARE_ACCOUNT_ID: emptyToUndefined(env.CLOUDFLARE_ACCOUNT_ID),
+    CLOUDFLARE_API_TOKEN: emptyToUndefined(env.CLOUDFLARE_API_TOKEN),
+    CLOUDFLARE_CLIENT_PROJECT_NAME: emptyToUndefined(
+      env.CLOUDFLARE_CLIENT_PROJECT_NAME,
+    ),
+  });
+
+  if (parsed.success) {
+    return { ok: true, env: parsed.data };
+  }
+
+  const missing = parsed.error.errors.map((e) => e.message).join(" ");
+  return {
+    ok: false,
+    error:
+      `Cloudflare deploy is not configured. ${missing} ` +
+      "Set CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, and CLOUDFLARE_CLIENT_PROJECT_NAME in apps/dashboard/.env.local.",
+  };
+}

@@ -1,5 +1,6 @@
 import { type NextRequest } from "next/server";
 import { buildLeadWebhookEvent } from "@mashedgames/shared/webhook-contract";
+import { type PrizeTier } from "@mashedgames/shared/prize-tier";
 import { buildSignedWebhookHeaders } from "@mashedgames/shared/webhook-sign";
 import {
   createAnonSupabaseClient,
@@ -18,7 +19,7 @@ type WebhookSettings = {
 };
 
 const TEST_EMAIL = "test-lead@mashedgames.io";
-const TEST_PRIZE_TIER = "test-tier";
+const TEST_PRIZE_TIER: PrizeTier = "tier_1";
 
 export async function POST(
   request: NextRequest,

@@ -66,14 +66,12 @@ export function ExitConfiguratorProjectButton() {
         type="button"
         onClick={handleExit}
         disabled={saving}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+        title="Return to the project list"
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-60"
       >
-        <LogOut className="h-4 w-4 shrink-0" aria-hidden />
+        <LogOut className="h-3.5 w-3.5 shrink-0" aria-hidden />
         Exit project
       </button>
-      <p className="text-center text-xs text-zinc-500">
-        Return to the project list. Switching to Studio keeps this project open.
-      </p>
 
       <UnsavedChangesDialog
         open={dialogOpen}

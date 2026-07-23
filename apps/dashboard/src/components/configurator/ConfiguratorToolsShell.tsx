@@ -30,8 +30,13 @@ export function ConfiguratorToolsShell({
   return (
     <aside className="flex h-full w-[360px] shrink-0 flex-col border-r border-zinc-200 bg-white">
       <header className="border-b border-zinc-200 px-6 py-5">
-        <h2 className="text-lg font-semibold text-zinc-900">Workspace</h2>
-        <p className="mt-0.5 text-xs text-zinc-500">Project save and export</p>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-zinc-900">Workspace</h2>
+            <p className="mt-0.5 text-xs text-zinc-500">Project save and export</p>
+          </div>
+          <ExitConfiguratorProjectButton />
+        </div>
       </header>
 
       {/* Unified action toolbar */}
@@ -53,7 +58,6 @@ export function ConfiguratorToolsShell({
         <ExportGameButton />
         <CloudflareDeployButton />
         <WebhookIntegrationsSection />
-        <ExitConfiguratorProjectButton />
       </div>
     </aside>
   );

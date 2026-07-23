@@ -142,6 +142,24 @@ export {
 } from "./game-claim";
 
 export {
+  PRIZE_TIER_VALUES,
+  PRIZE_TIER_LABELS,
+  PrizeTierEnum,
+  normalizePrizeToTier,
+  parsePrizeTier,
+  type PrizeTier,
+} from "./prize-tier";
+
+export {
+  COUPON_UPLOAD_MAX_CODES,
+  CouponUploadInputSchema,
+  emptyCouponTierCounts,
+  parseCouponUploadInput,
+  type CouponUploadInput,
+  type CouponTierCounts,
+} from "./coupon-contract";
+
+export {
   LEAD_WEBHOOK_EVENT,
   WEBHOOK_SIGNATURE_HEADER,
   WEBHOOK_TIMESTAMP_HEADER,
@@ -215,9 +233,13 @@ export {
   parseSupabasePublicEnv,
   parseSupabaseRuntimeEnv,
   parseSupabaseServerEnv,
+  CloudflareDeployEnvSchema,
+  parseCloudflareDeployEnv,
+  loadCloudflareDeployEnv,
   type SupabasePublicEnv,
   type SupabaseRuntimeEnv,
   type SupabaseServerEnv,
+  type CloudflareDeployEnv,
 } from "./env-schema";
 
 export {

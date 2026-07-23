@@ -244,7 +244,11 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  const finalUrl = `https://${templateSlug}.mashedgames-demos.pages.dev`;
+  // Demo/store Pages project — kept in sync with scripts/deploy-demo.mjs.
+  // Distinct from CLOUDFLARE_CLIENT_PROJECT_NAME (finished customer games).
+  const demoProject =
+    process.env.CLOUDFLARE_DEMO_PROJECT_NAME || "mashedgames-demos";
+  const finalUrl = `https://${templateSlug}.${demoProject}.pages.dev`;
 
   console.info(
     `[deploy-demo] Deploy succeeded for slug="${templateSlug}" url="${finalUrl}"`,

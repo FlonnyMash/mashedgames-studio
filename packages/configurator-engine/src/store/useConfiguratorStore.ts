@@ -57,6 +57,13 @@ export interface ConfiguratorStore {
   clearProject: () => void;
   markClientSaved: () => void;
   updateProjectManifest: (manifest: GameProjectManifest) => void;
+  /**
+   * Attach a resolved Supabase `public.games.id` to the open project after a
+   * deploy mints one. Updates the manifest, live config, and (if present) the
+   * saved-client snapshot together so the Webhook panel unlocks instantly
+   * without flagging the project as having unsaved changes.
+   */
+  setGameId: (gameId: string) => void;
   hasUnsavedClient: () => boolean;
   setAssetSaveHandler: (handler: AssetSaveHandler | null) => void;
   setConfig: (config: GameConfig) => void;
@@ -169,6 +176,18 @@ export const useConfiguratorStore = create<ConfiguratorStore>((set, get) => ({
 
   updateProjectManifest: (manifest) => {
     set({ projectManifest: manifest });
+  },
+
+  setGameId: (gameId) => {
+    const { projectManifest, savedClient } = get();
+    if (!projectManifest || !gameId || projectManifest.gameId === gameId) {
+      return;
+    }
+    set({
+      projectManifest: { ...projectManifest, gameId },
+      config: { ...get().config, gameId },
+      savedClient: savedClient ? { ...savedClient, gameId } : savedClient,
+    });
   },
 
   hasUnsavedClient: () => {

@@ -58,6 +58,51 @@ export type Database = {
           },
         ]
       }
+      coupons: {
+        Row: {
+          claimed_by_lead_id: string | null
+          code: string
+          created_at: string
+          game_id: string
+          id: string
+          is_used: boolean
+          prize_tier: Database["public"]["Enums"]["prize_tier"]
+        }
+        Insert: {
+          claimed_by_lead_id?: string | null
+          code: string
+          created_at?: string
+          game_id: string
+          id?: string
+          is_used?: boolean
+          prize_tier: Database["public"]["Enums"]["prize_tier"]
+        }
+        Update: {
+          claimed_by_lead_id?: string | null
+          code?: string
+          created_at?: string
+          game_id?: string
+          id?: string
+          is_used?: boolean
+          prize_tier?: Database["public"]["Enums"]["prize_tier"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coupons_claimed_by_lead_id_fkey"
+            columns: ["claimed_by_lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coupons_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       games: {
         Row: {
           config: Json
@@ -105,6 +150,44 @@ export type Database = {
             columns: ["source_template_id"]
             isOneToOne: false
             referencedRelation: "templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leads: {
+        Row: {
+          created_at: string
+          email: string
+          game_id: string
+          id: string
+          prize_tier: Database["public"]["Enums"]["prize_tier"]
+          status: Database["public"]["Enums"]["lead_status"]
+          verification_token: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          game_id: string
+          id?: string
+          prize_tier: Database["public"]["Enums"]["prize_tier"]
+          status?: Database["public"]["Enums"]["lead_status"]
+          verification_token?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          game_id?: string
+          id?: string
+          prize_tier?: Database["public"]["Enums"]["prize_tier"]
+          status?: Database["public"]["Enums"]["lead_status"]
+          verification_token?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "games"
             referencedColumns: ["id"]
           },
         ]
@@ -480,7 +563,9 @@ export type Database = {
     }
     Enums: {
       campaign_status: "active" | "expired" | "suspended"
+      lead_status: "unverified" | "verified"
       org_plan: "starter" | "growth" | "enterprise"
+      prize_tier: "tier_1" | "tier_2" | "tier_3" | "tier_4" | "tier_5"
       template_badge_type: "NEW" | "POPULAR" | "HOT"
       template_tier: "free" | "premium" | "enterprise"
       user_role: "studio_admin" | "b2b_user"
@@ -612,7 +697,9 @@ export const Constants = {
   public: {
     Enums: {
       campaign_status: ["active", "expired", "suspended"],
+      lead_status: ["unverified", "verified"],
       org_plan: ["starter", "growth", "enterprise"],
+      prize_tier: ["tier_1", "tier_2", "tier_3", "tier_4", "tier_5"],
       template_badge_type: ["NEW", "POPULAR", "HOT"],
       template_tier: ["free", "premium", "enterprise"],
       user_role: ["studio_admin", "b2b_user"],

@@ -1,34 +1,107 @@
-import { loadProject } from "@/lib/project-io";
+import {
+  buildProjectStaticBundle,
+  deployDirectoryToCloudflarePages,
+} from "@/lib/cloudflare-deploy";
+import { ensureClaimedGameRow, resolveSourceTemplateId } from "@/lib/games-claim";
+import { loadProject, persistProjectGameId } from "@/lib/project-io";
 import { resolveProjectOwnerContext } from "@/lib/project-owner-context";
-import { PROJECT_FILES, resolveProjectDir } from "@/lib/project-paths";
-import { exportTemplateToDirectory } from "@/lib/template-export";
+import {
+  createAnonSupabaseClient,
+  extractBearerToken,
+  getSupabaseRuntimeEnv,
+} from "@/lib/supabase-auth";
+import { loadCloudflareDeployEnv } from "@mashedgames/shared";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import simpleGit from "simple-git";
 import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
+/**
+ * A full engine copy + Wrangler Pages upload can take a couple of minutes.
+ * Honoured by serverless hosts; local Next.js relies on the wrangler timeout.
+ */
+export const maxDuration = 300;
+
 type RouteContext = { params: Promise<{ projectId: string }> };
+
+/**
+ * Resolve the Supabase `public.games.id` for this project, minting one if the
+ * project doesn't have it yet (e.g. its creation-time claim failed, or it's a
+ * legacy save). Persists a freshly-minted id to `project.json` / `client.json`
+ * so the deployed bundle embeds it and the webhook panel unlocks.
+ *
+ * Never throws and never blocks the deploy: a Supabase hiccup simply returns the
+ * existing (possibly null) id, mirroring the non-fatal pattern in projects/create.
+ */
+async function resolveDeployGameId(
+  request: NextRequest,
+  projectId: string,
+  manifest: { gameId?: string; parentTemplateId: string },
+  ownerContext: { ownerId: string } | null,
+): Promise<string | null> {
+  const existing = manifest.gameId ?? null;
+  if (existing) {
+    return existing;
+  }
+  if (!ownerContext) {
+    return null;
+  }
+
+  try {
+    const bearerToken = extractBearerToken(request.headers.get("Authorization"));
+    if (!bearerToken) {
+      return null;
+    }
+
+    const supabase = createAnonSupabaseClient(
+      getSupabaseRuntimeEnv(),
+      bearerToken,
+    );
+    const sourceTemplateId = await resolveSourceTemplateId(
+      supabase,
+      manifest.parentTemplateId,
+    );
+
+    const claimed = await ensureClaimedGameRow(supabase, {
+      ownerId: ownerContext.ownerId,
+      slug: projectId,
+      templateId: sourceTemplateId,
+    });
+    if (!claimed.ok) {
+      console.warn(
+        `[projects/deploy] Could not resolve gameId (non-fatal): ${claimed.error}`,
+      );
+      return null;
+    }
+
+    const gameId = claimed.game.id;
+    const persisted = await persistProjectGameId(projectId, gameId, ownerContext);
+    if (!persisted.ok) {
+      console.warn(
+        `[projects/deploy] Could not persist gameId (non-fatal): ${persisted.error}`,
+      );
+    }
+    return gameId;
+  } catch (error) {
+    console.warn(
+      "[projects/deploy] gameId resolution threw (non-fatal):",
+      error instanceof Error ? error.message : String(error),
+    );
+    return existing;
+  }
+}
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const { projectId } = await context.params;
-  const deployUrl =
-    process.env.DEPLOY_REPO_URL ?? process.env.GITHUB_DEPLOY_REPO_URL;
 
-  if (!deployUrl) {
-    return Response.json(
-      {
-        ok: false,
-        error:
-          "Deploy is not configured. Set DEPLOY_REPO_URL in apps/dashboard/.env.local.",
-      },
-      { status: 500 },
-    );
+  const cfEnv = loadCloudflareDeployEnv();
+  if (!cfEnv.ok) {
+    return Response.json({ ok: false, error: cfEnv.error }, { status: 500 });
   }
 
-  let tempDir: string | null = null;
+  let bundleDir: string | null = null;
 
   try {
     const ownerContext = await resolveProjectOwnerContext(request);
@@ -40,51 +113,56 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    const { manifest, config } = loaded.data;
-    const perProjectUrl = manifest.deployRepoUrl ?? deployUrl;
-
-    tempDir = await mkdtemp(path.join(os.tmpdir(), "mashedgames-deploy-"));
-
-    const projectAssetsDir = path.join(
-      resolveProjectDir(projectId),
-      PROJECT_FILES.assetsDir,
+    // Resolve (and persist) the Supabase games.id BEFORE bundling so the
+    // exported config.json ships with it and captured leads attribute correctly.
+    const gameId = await resolveDeployGameId(
+      request,
+      projectId,
+      loaded.data.manifest,
+      ownerContext,
     );
 
-    const exported = await exportTemplateToDirectory(
-      manifest.parentTemplateId,
-      tempDir,
-    );
+    bundleDir = await mkdtemp(path.join(os.tmpdir(), "mashedgames-deploy-"));
 
-    if (!exported.ok) {
+    const built = await buildProjectStaticBundle(
+      projectId,
+      ownerContext,
+      bundleDir,
+    );
+    if (!built.ok) {
       return Response.json(
-        { ok: false, error: exported.error },
-        { status: exported.status },
+        { ok: false, error: built.error },
+        { status: built.status },
       );
     }
 
-    const git = simpleGit(tempDir);
-    await git.init();
-    await git.add(".");
-    await git.commit("Auto-deploy from Configurator");
-    await git.addRemote("origin", perProjectUrl);
-    await git.push(["-u", "-f", "origin", "main"]);
+    const deployed = await deployDirectoryToCloudflarePages(
+      bundleDir,
+      cfEnv.env,
+    );
+    if (!deployed.ok) {
+      return Response.json(
+        { ok: false, error: deployed.error },
+        { status: deployed.status },
+      );
+    }
 
     return Response.json({
       ok: true,
       success: true,
-      message: "Pushed to repository successfully",
+      url: deployed.url,
+      gameId,
+      message: `Deployed to Cloudflare Pages: ${deployed.url}`,
     });
   } catch (error) {
     const message =
-      error instanceof Error
-        ? error.message.includes("Authentication")
-          ? "Git authentication failed. Check deploy credentials."
-          : error.message
-        : "Deploy failed.";
+      error instanceof Error ? error.message : "Deploy failed.";
     return Response.json({ ok: false, error: message }, { status: 500 });
   } finally {
-    if (tempDir) {
-      await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    if (bundleDir) {
+      await rm(bundleDir, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
     }
   }
 }

@@ -310,6 +310,73 @@ export async function patchProjectDisplayName(
   }
 }
 
+/**
+ * Persist a resolved Supabase `public.games.id` onto an existing workspace
+ * project. Writes `gameId` into both `project.json` (manifest) and `client.json`
+ * (flat config) so a subsequent export/deploy embeds the id and captured leads
+ * attribute correctly.
+ *
+ * Idempotent: a no-op (no disk write) when the manifest already carries the same
+ * id. All reads/writes stay inside `resolveProjectDir`, which is workspace-guarded.
+ */
+export async function persistProjectGameId(
+  projectId: string,
+  gameId: string,
+  ownerContext?: ProjectOwnerContext | null,
+): Promise<ProjectIoResult<{ manifest: GameProjectManifest }>> {
+  if (!gameId.trim()) {
+    return { ok: false, error: "gameId is required.", status: 400 };
+  }
+
+  try {
+    ensureWorkspaceExists();
+    const projectDir = resolveProjectDir(projectId);
+    if (!existsSync(projectDir)) {
+      return { ok: false, error: `Project "${projectId}" not found.`, status: 404 };
+    }
+
+    const manifestPath = path.join(projectDir, PROJECT_FILES.manifest);
+    const manifestRaw = JSON.parse(await readFile(manifestPath, "utf8"));
+    const manifestParsed = GameProjectManifestSchema.safeParse(manifestRaw);
+    if (!manifestParsed.success) {
+      return { ok: false, error: "Invalid project.json.", status: 500 };
+    }
+
+    const clientPath = path.join(projectDir, PROJECT_FILES.client);
+    const clientRaw = JSON.parse(await readFile(clientPath, "utf8"));
+    const clientParsed = ClientProjectPayloadSchema.safeParse(clientRaw);
+    if (!clientParsed.success) {
+      return { ok: false, error: "Invalid client.json.", status: 500 };
+    }
+
+    assertSaveOwnership(manifestParsed.data, ownerContext);
+
+    // Idempotent: nothing to do when the durable link is already in place.
+    if (manifestParsed.data.gameId === gameId) {
+      return { ok: true, data: { manifest: manifestParsed.data } };
+    }
+
+    const client: ClientProjectPayload = { ...clientParsed.data, gameId };
+    let manifest: GameProjectManifest = { ...manifestParsed.data, gameId };
+
+    if (!isLegacyProjectManifest(manifest) && ownerContext?.ownerId) {
+      // Re-sign over the mutated client payload so the signature stays valid.
+      manifest = await stampManifestOwnership(
+        manifest,
+        client,
+        ownerContext.ownerId,
+      );
+    }
+
+    await writeJson(clientPath, client);
+    await writeJson(manifestPath, manifest);
+
+    return { ok: true, data: { manifest } };
+  } catch (error) {
+    return projectIoFailure(error, "Failed to persist gameId.");
+  }
+}
+
 export async function createProject(input: {
   displayName: string;
   parentTemplateId: GameTemplateId;

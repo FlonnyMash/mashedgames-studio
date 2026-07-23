@@ -76,6 +76,32 @@ body {
   animation: popover-in 140ms ease-out both;
 }
 
+@keyframes accordion-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+.animate-accordion-down {
+  animation: accordion-down 200ms ease-out;
+}
+
+.animate-accordion-up {
+  animation: accordion-up 200ms ease-out;
+}
+
 /* TipTap inline editor placeholders */
 .ProseMirror p.is-editor-empty:first-child::before {
   color: rgb(161 161 170);

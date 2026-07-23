@@ -1,7 +1,11 @@
 const { ipcMain } = require("electron");
 const { callDashboardApi } = require("./admin-ipc-utils");
 
-const PROJECTS_API_PATH = /^\/api\/projects(?:\/|$)/;
+// Renderer-proxied dashboard API surface. `games` routes (claim, webhook
+// settings/test, and the owner-scoped game list) are authenticated and
+// RLS-scoped server-side, and the renderer's anon Supabase client cannot reach
+// public.games directly in Electron, so they must be reachable via this proxy.
+const PROJECTS_API_PATH = /^\/api\/(?:projects|games)(?:\/|$)/;
 
 function normalizeProjectsFetchPathname(pathname) {
   if (typeof pathname !== "string") {

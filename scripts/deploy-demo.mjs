@@ -77,6 +77,10 @@ const cfApiToken =
   deployEnv.CLOUDFLARE_API_TOKEN;
 const cfAccountId =
   deployEnv.CLOUDFLARE_ACCOUNT_ID;
+// Studio demo/store Pages project — distinct from the customer-games project
+// (CLOUDFLARE_CLIENT_PROJECT_NAME) used by the configurator deploy route.
+const cfDemoProject =
+  deployEnv.CLOUDFLARE_DEMO_PROJECT_NAME || "mashedgames-demos";
 
 if (!cfApiToken) {
   console.error(
@@ -111,7 +115,7 @@ try {
       "deploy",
       stagingDir,
       "--project-name",
-      "mashedgames-demos",
+      cfDemoProject,
       "--branch",
       templateName,
     ],
@@ -130,7 +134,7 @@ try {
 
   console.log(
     `\n[deploy-demo] Done! Demo deployed to:\n` +
-      `  https://${templateName}.mashedgames-demos.pages.dev`,
+      `  https://${templateName}.${cfDemoProject}.pages.dev`,
   );
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

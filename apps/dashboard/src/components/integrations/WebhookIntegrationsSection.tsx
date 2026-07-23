@@ -1,82 +1,78 @@
 "use client";
 
-import { WebhookIntegrationPanel } from "@/components/integrations/WebhookIntegrationPanel";
-import { useAuthStore } from "@/store/useAuthStore";
-import { useGameLibraryStore } from "@/store/useGameLibraryStore";
-import { useEffect, useMemo, useState } from "react";
+import { BuiltInRewardsPanel } from "@/components/integrations/BuiltInRewardsPanel";
+import {
+  inputClass,
+  WebhookIntegrationPanel,
+} from "@/components/integrations/WebhookIntegrationPanel";
+import { WebhookHelpDialog } from "@/components/integrations/WebhookHelpDialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useConfiguratorStore } from "@mashedgames/configurator-engine";
+import { Lock } from "lucide-react";
 
 /**
- * Developer / Integrations section. Webhook settings live on public.games
- * rows, so this resolves the caller's claimed games and lets them pick which
- * game's webhook to configure.
+ * Lead Capture & Rewards section. Both surfaces (built-in coupon rewards and
+ * advanced webhooks) live on the project's `public.games` row, so this is
+ * scoped strictly to the currently open project: it unlocks only once the
+ * project has a Supabase `gameId` (minted on deploy).
  */
 export function WebhookIntegrationsSection() {
-  const userId = useAuthStore((s) => s.userId);
-  const games = useGameLibraryStore((s) => s.games);
-  const isLoading = useGameLibraryStore((s) => s.isLoading);
-  const fetchClaimedTemplates = useGameLibraryStore((s) => s.fetchClaimedTemplates);
-
-  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (userId && games.length === 0 && !isLoading) {
-      void fetchClaimedTemplates(userId);
-    }
-  }, [userId, games.length, isLoading, fetchClaimedTemplates]);
-
-  useEffect(() => {
-    if (!selectedGameId && games.length > 0) {
-      setSelectedGameId(games[0]!.id);
-    }
-  }, [games, selectedGameId]);
-
-  const selected = useMemo(
-    () => games.find((g) => g.id === selectedGameId) ?? null,
-    [games, selectedGameId],
-  );
+  const gameId = useConfiguratorStore((s) => s.projectManifest?.gameId ?? null);
 
   return (
     <section className="space-y-3">
       <div>
         <p className="mb-0.5 text-[11px] font-medium uppercase tracking-wide text-zinc-400">
-          Developer / Integrations
+          Lead Capture & Rewards
         </p>
         <p className="text-xs text-zinc-500">
-          Connect a game to your own CRM via signed webhooks.
+          Reward your players with discount codes automatically, or connect your
+          own CRM via signed webhooks.
         </p>
       </div>
 
-      {!userId ? (
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
-          Sign in on the web dashboard to manage webhook integrations.
-        </div>
-      ) : isLoading && games.length === 0 ? (
-        <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 text-xs text-zinc-500">
-          Loading your games...
-        </div>
-      ) : games.length === 0 ? (
-        <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-500">
-          Claim a game from the store to configure its webhook integration.
-        </div>
+      {gameId ? (
+        <Tabs defaultValue="built-in" className="space-y-3">
+          <TabsList className="w-full">
+            <TabsTrigger value="built-in" className="flex-1">
+              Built-in System (Easy)
+            </TabsTrigger>
+            <TabsTrigger value="webhooks" className="flex-1">
+              Advanced Webhooks
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="built-in">
+            <BuiltInRewardsPanel key={`rewards-${gameId}`} gameId={gameId} />
+          </TabsContent>
+
+          <TabsContent value="webhooks" className="space-y-3">
+            <div className="flex items-center gap-1.5">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">
+                Developer / Integrations
+              </p>
+              <WebhookHelpDialog />
+            </div>
+            <WebhookIntegrationPanel key={`webhook-${gameId}`} gameId={gameId} />
+          </TabsContent>
+        </Tabs>
       ) : (
         <div className="space-y-3">
-          {games.length > 1 ? (
-            <select
-              value={selectedGameId ?? ""}
-              onChange={(e) => setSelectedGameId(e.target.value)}
-              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-indigo-400 focus:outline-none"
-            >
-              {games.map((game) => (
-                <option key={game.id} value={game.id}>
-                  {game.slug}
-                </option>
-              ))}
-            </select>
-          ) : null}
-
-          {selected ? (
-            <WebhookIntegrationPanel key={selected.id} gameId={selected.id} />
-          ) : null}
+          <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+            <Lock className="mt-px h-4 w-4 shrink-0 text-amber-500" aria-hidden />
+            <p>
+              Lead capture &amp; rewards require an active database connection.
+              Please Deploy your game to Cloudflare first to unlock coupon
+              uploads and webhook endpoints.
+            </p>
+          </div>
+          <input
+            type="url"
+            disabled
+            aria-disabled
+            placeholder="https://your-crm.example.com/hooks/mashedgames"
+            className={inputClass}
+          />
         </div>
       )}
     </section>
