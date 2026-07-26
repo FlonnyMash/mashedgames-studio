@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useLayoutEffect, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Image from "next/image";
 import { supabase } from "@/lib/supabaseClient";
 import { BRAND_LOGO_INTRINSIC_SIZE } from "@/lib/brand-logo-constants";
 import { isStudioMode } from "@/lib/app-mode";
+import { notifyDesktopUiReady } from "@/lib/desktop-boot";
 import { usePlatformStore } from "@/store/usePlatformStore";
 import { useAuthStore } from "@/store/useAuthStore";
 
@@ -86,6 +87,10 @@ export function LoginComponent() {
       : null;
   const [formError, setFormError] = useState<string | null>(null);
   const error = formError ?? urlError;
+
+  useLayoutEffect(() => {
+    notifyDesktopUiReady();
+  }, []);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();

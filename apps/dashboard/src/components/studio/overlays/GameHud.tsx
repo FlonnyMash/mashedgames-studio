@@ -26,10 +26,12 @@ export function GameHud({ config }: TemplateOverlayProps) {
   // the module is actually supported.
   const showTimer =
     config.showCountdownTimer !== false &&
-    supportsUI.includes(UI_MODULE.COUNTDOWN_TIMER);
+    (supportsUI === undefined ||
+      supportsUI.includes(UI_MODULE.COUNTDOWN_TIMER));
   const showScore =
     config.showHighscore !== false &&
-    supportsUI.includes(UI_MODULE.HIGHSCORE) &&
+    (supportsUI === undefined ||
+      supportsUI.includes(UI_MODULE.HIGHSCORE)) &&
     (isPlaying || isGameOver);
 
   useEffect(() => {

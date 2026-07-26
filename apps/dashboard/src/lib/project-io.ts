@@ -49,10 +49,20 @@ import {
   readParentManifest,
 } from "@/lib/project-parent-config";
 import { readTemplateFields, readTemplateSupportsUI } from "@/lib/template-fields";
+import { buildMetaAssetUrl, readTemplateMeta } from "@/lib/template-meta-io";
 
 export type ProjectIoResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: string; status: number };
+
+export type ProjectListSummary = {
+  projectId: string;
+  displayName: string;
+  parentTemplateId: string;
+  parentVersion: string;
+  mode: SaveMode;
+  thumbnailUrl?: string;
+};
 
 async function writeJson(filePath: string, data: unknown): Promise<void> {
   await writeFile(filePath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
@@ -214,6 +224,97 @@ export async function listProjectIds(
     ids.push(entry.name);
   }
   return ids.sort();
+}
+
+/**
+ * Lightweight project directory listing for grid UIs.
+ * Reads only `project.json` (+ optional template thumbnail meta) — does not
+ * load client.json, parent-lock, or run HMAC claim writes. Ownership is
+ * filtered by ownerId match (signature verified when a project is opened).
+ */
+export async function listProjectSummaries(
+  filters?: { mode?: SaveMode; templateId?: string },
+  ownerContext?: ProjectOwnerContext | null,
+): Promise<ProjectListSummary[]> {
+  ensureWorkspaceExists();
+  const projectsRoot = getProjectsRoot();
+  if (!existsSync(projectsRoot)) {
+    return [];
+  }
+
+  const normalizedFilterTemplateId =
+    filters?.templateId !== undefined
+      ? normalizeTemplateId(filters.templateId)
+      : undefined;
+
+  const entries = await readdir(projectsRoot, { withFileTypes: true });
+  const summaries: ProjectListSummary[] = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !PROJECT_ID_PATTERN.test(entry.name)) {
+      continue;
+    }
+
+    const manifestPath = path.join(
+      projectsRoot,
+      entry.name,
+      PROJECT_FILES.manifest,
+    );
+    if (!existsSync(manifestPath)) {
+      continue;
+    }
+
+    let manifest: GameProjectManifest;
+    try {
+      const raw = JSON.parse(await readFile(manifestPath, "utf8"));
+      const parsed = GameProjectManifestSchema.safeParse(raw);
+      if (!parsed.success) {
+        continue;
+      }
+      manifest = parsed.data;
+    } catch {
+      continue;
+    }
+
+    if (filters?.mode !== undefined && manifest.mode !== filters.mode) {
+      continue;
+    }
+
+    const parentTemplateId = normalizeTemplateId(manifest.parentTemplateId);
+    if (
+      normalizedFilterTemplateId !== undefined &&
+      parentTemplateId !== normalizedFilterTemplateId
+    ) {
+      continue;
+    }
+
+    try {
+      assertSaveOwnership(manifest, ownerContext);
+    } catch {
+      continue;
+    }
+
+    let thumbnailUrl: string | undefined;
+    try {
+      const meta = readTemplateMeta(parentTemplateId);
+      if (meta.thumbnail) {
+        thumbnailUrl = buildMetaAssetUrl(parentTemplateId, meta.thumbnail);
+      }
+    } catch {
+      // Non-fatal — thumbnail is informational only
+    }
+
+    summaries.push({
+      projectId: entry.name,
+      displayName: manifest.displayName,
+      parentTemplateId,
+      parentVersion: manifest.parentVersion,
+      mode: manifest.mode,
+      thumbnailUrl,
+    });
+  }
+
+  return summaries.sort((a, b) => a.projectId.localeCompare(b.projectId));
 }
 
 export async function getProjectDetails(

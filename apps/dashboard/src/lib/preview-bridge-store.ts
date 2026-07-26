@@ -22,19 +22,20 @@ type PreviewBridgeStore = {
    * Screen, Highscore, Lead Capture, Countdown Timer) may render — the
    * overlay shell and the config panels must consult this before trusting
    * any raw GameConfig `showXxx` boolean.
+   * `undefined` = not loaded yet (do not filter overlays/groups).
    */
-  supportsUI: UIModule[];
+  supportsUI: UIModule[] | undefined;
   setMessenger: (messenger: PreviewMessenger | null) => void;
   setRuntimeAssets: (assets: Record<string, string>) => void;
   setTemplateFields: (fields: TemplateFieldDescriptor[]) => void;
-  setSupportsUI: (modules: UIModule[]) => void;
+  setSupportsUI: (modules: UIModule[] | undefined) => void;
 };
 
 export const usePreviewBridgeStore = create<PreviewBridgeStore>((set) => ({
   messenger: null,
   runtimeAssets: {},
   templateFields: [],
-  supportsUI: [],
+  supportsUI: undefined,
   setMessenger: (messenger) => set({ messenger }),
   setRuntimeAssets: (runtimeAssets) => set({ runtimeAssets }),
   setTemplateFields: (templateFields) => set({ templateFields }),

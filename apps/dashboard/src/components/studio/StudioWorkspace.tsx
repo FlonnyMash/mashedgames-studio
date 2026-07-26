@@ -31,7 +31,9 @@ export function StudioWorkspace({ suspended = false }: { suspended?: boolean }) 
     (state) => state.selectedTemplateId,
   );
   const [templateFields, setTemplateFields] = useState<TemplateFieldDescriptor[]>([]);
-  const [supportsUI, setSupportsUI] = useState<UIModule[]>([]);
+  // undefined = not loaded yet (show all overlay groups); [] would hide every
+  // supportsUI-gated group including Lead Capture / Start Screen.
+  const [supportsUI, setSupportsUI] = useState<UIModule[] | undefined>(undefined);
 
   useEffect(() => {
     const studioState = useStudioConfigStore.getState();

@@ -10,7 +10,7 @@ export const luckyWheelManifest = {
   version: "1.0.0",
   displayName: "Lucky Wheel",
   lockedFields: ["activeTemplateId", "schemaVersion"],
-  supportsUI: [UI_MODULE.LEAD_CAPTURE],
+  supportsUI: [UI_MODULE.START_SCREEN, UI_MODULE.LEAD_CAPTURE],
   supportedEvents: [
     GAME_LIFECYCLE_EVENT_TYPE.ON_GAME_READY,
     GAME_LIFECYCLE_EVENT_TYPE.ON_GAME_START,

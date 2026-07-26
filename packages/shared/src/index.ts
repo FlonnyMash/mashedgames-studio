@@ -152,11 +152,15 @@ export {
 
 export {
   COUPON_UPLOAD_MAX_CODES,
+  COUPON_MAX_USES_LIMIT,
   CouponUploadInputSchema,
+  CouponUpdateInputSchema,
   emptyCouponTierCounts,
   parseCouponUploadInput,
   type CouponUploadInput,
+  type CouponUpdateInput,
   type CouponTierCounts,
+  type CouponListItem,
 } from "./coupon-contract";
 
 export {

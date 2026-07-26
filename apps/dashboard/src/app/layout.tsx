@@ -35,8 +35,12 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      style={{ backgroundColor: "#fafafa" }}
     >
-      <body className="flex h-full flex-col overflow-hidden font-sans antialiased text-zinc-900">
+      <body
+        className="flex h-full flex-col overflow-hidden font-sans antialiased text-zinc-900"
+        style={{ backgroundColor: "#fafafa" }}
+      >
         <LayoutGuard>{children}</LayoutGuard>
         <Toaster position="bottom-right" richColors />
       </body>

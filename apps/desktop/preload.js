@@ -22,6 +22,8 @@ const ALLOWED_CHANNELS = new Set([
   "store:load-tag-filters",
   "store:acquire-license",
   "store:claim-game",
+  // Boot / splash handoff
+  "app:ui-ready",
   // Electron auto-updater
   "updater:check",
   "updater:download",

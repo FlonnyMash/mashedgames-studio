@@ -9,6 +9,10 @@ const LAZY_SCENE_REGISTRY: Record<
     const { CatchGameScene } = await import("@mashedgames/templates");
     return CatchGameScene;
   },
+  "lucky-wheel": async () => {
+    const { LuckyWheelScene } = await import("@mashedgames/templates");
+    return LuckyWheelScene;
+  },
 };
 
 export async function resolveTemplateScene(

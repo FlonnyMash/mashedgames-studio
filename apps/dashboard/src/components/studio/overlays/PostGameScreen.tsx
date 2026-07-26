@@ -42,11 +42,17 @@ export function PostGameScreen({
 
   // Manifest is the source of truth: the raw GameConfig `showXxx` flag is
   // only consulted once the template's manifest.supportsUI has confirmed
-  // the module is actually supported.
+  // the module is actually supported. While supportsUI is still undefined
+  // (manifest not loaded), fall back to the config flags so a win cannot
+  // race the sidebar fetch and hide lead capture.
   const showLeadCapture =
-    config.showLeadCapture !== false && supportsUI.includes(UI_MODULE.LEAD_CAPTURE);
+    config.showLeadCapture !== false &&
+    (supportsUI === undefined ||
+      supportsUI.includes(UI_MODULE.LEAD_CAPTURE));
   const showHighscore =
-    config.showHighscore !== false && supportsUI.includes(UI_MODULE.HIGHSCORE);
+    config.showHighscore !== false &&
+    (supportsUI === undefined ||
+      supportsUI.includes(UI_MODULE.HIGHSCORE));
 
   if (!isGameOver || (!showLeadCapture && !showHighscore)) {
     return null;

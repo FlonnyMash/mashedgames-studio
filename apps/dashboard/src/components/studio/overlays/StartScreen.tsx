@@ -12,7 +12,12 @@ export function StartScreen({ config, messenger, disabled }: TemplateOverlayProp
   // Manifest is the source of truth: the template must explicitly declare
   // START_SCREEN in `supportsUI` before this overlay is allowed to render,
   // regardless of the raw GameConfig `showStartScreen` flag.
-  if (!supportsUI.includes(UI_MODULE.START_SCREEN)) return null;
+  if (
+    supportsUI !== undefined &&
+    !supportsUI.includes(UI_MODULE.START_SCREEN)
+  ) {
+    return null;
+  }
   if (config.showStartScreen === false || dismissed) return null;
 
   const title = config.startScreenTitle || "Play Now";

@@ -9,6 +9,7 @@ import { MetaBuilderDevFabHost } from "@/components/shell/MetaBuilderDevFabHost"
 import { PersistentWorkspaces } from "@/components/shell/PersistentWorkspaces";
 import { TemplatePreviewWarmup } from "@/components/shell/TemplatePreviewWarmup";
 import { useHomeNavigation } from "@/hooks/useHomeNavigation";
+import { notifyDesktopUiReady } from "@/lib/desktop-boot";
 import { STUDIO_MODE_ENABLED } from "@/lib/studio-mode";
 import {
   configuratorWorkspaceHref,
@@ -16,6 +17,8 @@ import {
   useWorkspaceSessionStore,
 } from "@/lib/workspace-session-store";
 import { usePlatformStore } from "@/store/usePlatformStore";
+import { useProjectsListStore } from "@/store/useProjectsListStore";
+import { useStoreCatalogStore } from "@/store/useStoreCatalogStore";
 import { Lock } from "lucide-react";
 import { UserMenu } from "@/components/shell/UserMenu";
 
@@ -36,6 +39,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useLayoutEffect(() => {
     document.documentElement.style.setProperty("--platform-primary", primaryColor);
   }, [primaryColor]);
+
+  useLayoutEffect(() => {
+    notifyDesktopUiReady();
+    // Warm store + projects caches in the background so tab switches feel instant.
+    useStoreCatalogStore.getState().prefetch([]);
+    useProjectsListStore.getState().prefetch();
+  }, []);
+
   const activeStudioTemplateId = useWorkspaceSessionStore(
     (s) => s.activeStudioTemplateId,
   );
@@ -47,7 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { requestHomeNavigation, homeNavigationDialog } = useHomeNavigation();
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div className="flex h-full min-h-0 flex-col bg-[#fafafa]">
       <TemplatePreviewWarmup />
       <AppMenuBar />
       <header className="flex shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-4 py-3">

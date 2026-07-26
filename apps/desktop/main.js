@@ -773,6 +773,48 @@ function closeSplashWindow() {
   splashWindow.close();
 }
 
+/** Keep splash until AuthGuard/AppShell paints, with a hard timeout fallback. */
+const BOOT_UI_READY_TIMEOUT_MS = 12000;
+let splashHandoffComplete = false;
+let splashHandoffTimer = null;
+
+function finishSplashHandoff() {
+  if (splashHandoffComplete) {
+    return;
+  }
+  splashHandoffComplete = true;
+  if (splashHandoffTimer) {
+    clearTimeout(splashHandoffTimer);
+    splashHandoffTimer = null;
+  }
+  closeSplashWindow();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (!mainWindow.isVisible()) {
+      mainWindow.show();
+    }
+    mainWindow.focus();
+  }
+}
+
+function armSplashHandoffTimeout() {
+  if (splashHandoffTimer) {
+    clearTimeout(splashHandoffTimer);
+  }
+  splashHandoffTimer = setTimeout(() => {
+    console.warn(
+      `[splash] UI ready signal timed out after ${BOOT_UI_READY_TIMEOUT_MS}ms — closing splash`,
+    );
+    finishSplashHandoff();
+  }, BOOT_UI_READY_TIMEOUT_MS);
+}
+
+function registerBootUiReadyIpc() {
+  ipcMain.handle("app:ui-ready", () => {
+    finishSplashHandoff();
+    return { ok: true };
+  });
+}
+
 function attachMainWindowNavigationGuards(window, allowedOrigin) {
   const allowedOriginWithSlash = `${allowedOrigin}/`;
 
@@ -824,12 +866,14 @@ function createMainWindow(port) {
     extraArgs.push("--mashed-dev-store-preview");
   }
 
+  splashHandoffComplete = false;
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 960,
     minWidth: 1200,
     minHeight: 760,
     show: false,
+    backgroundColor: "#fafafa",
     autoHideMenuBar: true,
     webPreferences: {
       contextIsolation: true,
@@ -841,11 +885,12 @@ function createMainWindow(port) {
   });
 
   mainWindow.once("ready-to-show", () => {
-    closeSplashWindow();
+    // Show the main window under the always-on-top splash so React can paint
+    // before splash closes — avoids a white flash between the two windows.
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.show();
-      mainWindow.focus();
     }
+    armSplashHandoffTimeout();
   });
 
   const allowedOrigin = dashboardUrlBase
@@ -1049,6 +1094,7 @@ app.whenReady().then(async () => {
     validateElectronRuntimeBinary();
     const workspacePath = getAdvergamingWorkspacePath();
     ensureWorkspaceStructure(workspacePath);
+    registerBootUiReadyIpc();
     registerSaveProjectAssetIpc(workspacePath);
     registerExportProjectIpc(workspacePath, () => dashboardPort);
     registerSaveFlatConfigIpc(workspacePath);

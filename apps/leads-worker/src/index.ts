@@ -1,8 +1,9 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   LeadSubmitPayloadSchema,
   buildLeadWebhookEvent,
 } from "@mashedgames/shared/webhook-contract";
+import { normalizePrizeToTier } from "@mashedgames/shared/prize-tier";
 import { buildSignedWebhookHeaders } from "@mashedgames/shared/webhook-sign";
 
 /**
@@ -86,16 +87,20 @@ type GameWebhookRow = {
   webhook_secret: string;
 };
 
+/**
+ * Creates a service-role Supabase client (bypasses RLS). Session persistence and
+ * token auto-refresh are disabled — the Worker is stateless and short-lived.
+ */
+function createSupabaseClient(env: Env): SupabaseClient {
+  return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
 async function lookupGameWebhook(
-  env: Env,
+  supabase: SupabaseClient,
   gameId: string,
 ): Promise<GameWebhookRow | null> {
-  const supabase = createClient(
-    env.SUPABASE_URL,
-    env.SUPABASE_SERVICE_ROLE_KEY,
-    { auth: { persistSession: false, autoRefreshToken: false } },
-  );
-
   const { data, error } = await supabase
     .from("games")
     .select("webhook_url, webhook_secret")
@@ -125,7 +130,9 @@ async function dispatchWebhook(
   try {
     const headers = await buildSignedWebhookHeaders(secret, body, timestamp);
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
+    // Strict 5s ceiling: a dead/slow client CRM must never keep the dispatch
+    // (and thus the Worker invocation) alive longer than necessary.
+    const timeout = setTimeout(() => controller.abort(), 5_000);
 
     const response = await fetch(webhookUrl, {
       method: "POST",
@@ -142,6 +149,36 @@ async function dispatchWebhook(
     }
   } catch (err) {
     console.error("[leads-worker] webhook dispatch failed", {
+      message: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+/**
+ * Fire-and-forget trigger for the Double Opt-In (DOI) verification email.
+ *
+ * TODO(doi-email-integration): this is the exact integration point for a real
+ * transactional email provider (Resend / SendGrid / etc). It is intentionally
+ * stubbed — no provider or secret is wired up yet. The follow-up task adding
+ * `GET /api/leads/verify` will build the verification link from
+ * `verification_token` and dispatch the actual email here.
+ *
+ * Never throws: like the webhook dispatch, a failure here must not affect the
+ * response already returned to the game.
+ */
+async function triggerDoubleOptin(
+  leadId: string,
+  email: string,
+  verificationToken: string,
+): Promise<void> {
+  try {
+    console.log("[leads-worker] DOI pending (email not yet wired)", {
+      leadId,
+      email,
+      verificationToken,
+    });
+  } catch (err) {
+    console.error("[leads-worker] triggerDoubleOptin failed", {
       message: err instanceof Error ? err.message : String(err),
     });
   }
@@ -167,29 +204,69 @@ async function handleLeadSubmit(
   }
   const lead = parsed.data;
 
-  const game = await lookupGameWebhook(env, lead.gameId);
+  const supabase = createSupabaseClient(env);
+
+  const game = await lookupGameWebhook(supabase, lead.gameId);
   if (!game) {
     return jsonResponse({ ok: false, error: "game_not_found" }, 404, env, requestOrigin);
   }
 
-  // No webhook configured: fall through to internal handling. The internal
-  // DOI/coupon pipeline does not exist yet; return success so the game UI
-  // proceeds normally. (Documented stub — see plan.)
-  if (!game.webhook_url) {
-    return jsonResponse({ ok: true, handledBy: "internal" }, 200, env, requestOrigin);
+  // Normalize the prize tier exactly once so the external webhook payload and
+  // the persisted lead row carry the identical strict PrizeTierEnum value.
+  // `prizeTier` is optional on the inbound payload; missing/blank falls back to
+  // the lowest tier via normalizePrizeToTier.
+  const prizeTier = normalizePrizeToTier(lead.prizeTier ?? "");
+  const normalizedLead = { ...lead, prizeTier };
+
+  // 1. Webhook dispatch (AND, not XOR): when a client CRM webhook is configured
+  //    we build + sign the exact body and fire it out of band. This never
+  //    short-circuits — control always falls through to the Built-in Rewards
+  //    pipeline below. `dispatchWebhook` is wrapped in try/catch with a strict
+  //    5s AbortController timeout, so a dead endpoint can neither block nor
+  //    crash the Worker.
+  if (game.webhook_url) {
+    const timestamp = new Date().toISOString();
+    const event = buildLeadWebhookEvent(normalizedLead, timestamp);
+    const body = JSON.stringify(event);
+
+    ctx.waitUntil(
+      dispatchWebhook(game.webhook_url, game.webhook_secret, body, timestamp),
+    );
   }
 
-  // Webhook path: build + sign the exact body we send, dispatch out of band,
-  // and immediately return success — bypassing internal DOI/coupon logic.
-  const timestamp = new Date().toISOString();
-  const event = buildLeadWebhookEvent(lead, timestamp);
-  const body = JSON.stringify(event);
+  // 2. Built-in Rewards (always runs): persist the lead as `unverified` with a
+  //    freshly minted verification token, then kick off the Double Opt-In flow.
+  const verificationToken = crypto.randomUUID();
 
+  const { data: insertedLead, error: insertError } = await supabase
+    .from("leads")
+    .insert({
+      game_id: lead.gameId,
+      email: lead.email,
+      prize_tier: prizeTier,
+      status: "unverified",
+      verification_token: verificationToken,
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  if (insertError || !insertedLead) {
+    console.error("[leads-worker] lead insert failed", {
+      gameId: lead.gameId,
+      code: insertError?.code,
+    });
+    return jsonResponse({ ok: false, error: "lead_insert_failed" }, 500, env, requestOrigin);
+  }
+
+  // 3. Double Opt-In trigger: fire-and-forget so the HTTP response is fully
+  //    decoupled from the (currently stubbed) email dispatch.
   ctx.waitUntil(
-    dispatchWebhook(game.webhook_url, game.webhook_secret, body, timestamp),
+    triggerDoubleOptin(insertedLead.id, lead.email, verificationToken),
   );
 
-  return jsonResponse({ ok: true, handledBy: "webhook" }, 200, env, requestOrigin);
+  // The 200 is gated strictly on the Supabase insert succeeding — never on the
+  // webhook fetch or the DOI stub.
+  return jsonResponse({ ok: true }, 200, env, requestOrigin);
 }
 
 export default {

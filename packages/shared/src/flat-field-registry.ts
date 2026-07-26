@@ -375,13 +375,14 @@ export function fieldsForMode(
  * template. Groups with no `uiModule` (e.g. "branding") are always allowed.
  * `supportsUI === undefined` means "unknown/not loaded yet" and does not
  * filter anything, so the panel doesn't flash empty before the manifest's
- * `supportsUI` has been fetched.
+ * `supportsUI` has been fetched. An empty array means the template declared
+ * no overlay modules and correctly hides gated groups.
  */
 function matchesSupportedUI(
   group: GroupDefinition,
   supportsUI: UIModule[] | undefined,
 ): boolean {
-  if (!group.uiModule || !supportsUI) {
+  if (!group.uiModule || supportsUI === undefined) {
     return true;
   }
   return (supportsUI as string[]).includes(group.uiModule);

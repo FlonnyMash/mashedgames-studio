@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useProjectsListStore } from "@/store/useProjectsListStore";
+import { useStoreCatalogStore } from "@/store/useStoreCatalogStore";
 
 type IndicatorRect = { left: number; width: number; height: number; top: number };
 
@@ -154,6 +156,14 @@ export function EnvironmentNav({
     setPendingIndex(index);
   };
 
+  const prefetchStore = () => {
+    useStoreCatalogStore.getState().prefetch([]);
+  };
+
+  const prefetchConfigurator = () => {
+    useProjectsListStore.getState().prefetch();
+  };
+
   return (
     <nav
       ref={navRef}
@@ -200,6 +210,8 @@ export function EnvironmentNav({
         ref={setItemRef(2)}
         href={storeHref}
         onClick={() => selectTab(2)}
+        onPointerEnter={prefetchStore}
+        onFocus={prefetchStore}
         className={tabClass(displayIndex === 2)}
         aria-current={routeActiveIndex === 2 ? "page" : undefined}
       >
@@ -209,6 +221,8 @@ export function EnvironmentNav({
         ref={setItemRef(3)}
         href={configuratorHref}
         onClick={() => selectTab(3)}
+        onPointerEnter={prefetchConfigurator}
+        onFocus={prefetchConfigurator}
         className={tabClass(displayIndex === 3)}
         aria-current={routeActiveIndex === 3 ? "page" : undefined}
       >

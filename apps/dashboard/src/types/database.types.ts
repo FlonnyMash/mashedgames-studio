@@ -60,40 +60,33 @@ export type Database = {
       }
       coupons: {
         Row: {
-          claimed_by_lead_id: string | null
           code: string
           created_at: string
+          current_uses: number
           game_id: string
           id: string
-          is_used: boolean
+          max_uses: number
           prize_tier: Database["public"]["Enums"]["prize_tier"]
         }
         Insert: {
-          claimed_by_lead_id?: string | null
           code: string
           created_at?: string
+          current_uses?: number
           game_id: string
           id?: string
-          is_used?: boolean
+          max_uses?: number
           prize_tier: Database["public"]["Enums"]["prize_tier"]
         }
         Update: {
-          claimed_by_lead_id?: string | null
           code?: string
           created_at?: string
+          current_uses?: number
           game_id?: string
           id?: string
-          is_used?: boolean
+          max_uses?: number
           prize_tier?: Database["public"]["Enums"]["prize_tier"]
         }
         Relationships: [
-          {
-            foreignKeyName: "coupons_claimed_by_lead_id_fkey"
-            columns: ["claimed_by_lead_id"]
-            isOneToOne: false
-            referencedRelation: "leads"
-            referencedColumns: ["id"]
-          },
           {
             foreignKeyName: "coupons_game_id_fkey"
             columns: ["game_id"]
@@ -156,6 +149,7 @@ export type Database = {
       }
       leads: {
         Row: {
+          assigned_coupon_code: string | null
           created_at: string
           email: string
           game_id: string
@@ -165,6 +159,7 @@ export type Database = {
           verification_token: string
         }
         Insert: {
+          assigned_coupon_code?: string | null
           created_at?: string
           email: string
           game_id: string
@@ -174,6 +169,7 @@ export type Database = {
           verification_token?: string
         }
         Update: {
+          assigned_coupon_code?: string | null
           created_at?: string
           email?: string
           game_id?: string
@@ -543,6 +539,14 @@ export type Database = {
           popularity_score: number
           template_slug: string
         }[]
+      }
+      claim_coupon: {
+        Args: {
+          p_game_id: string
+          p_lead_id: string
+          p_prize_tier: Database["public"]["Enums"]["prize_tier"]
+        }
+        Returns: string
       }
       get_storefront_tag_filters: { Args: never; Returns: Json }
       is_studio_admin: { Args: never; Returns: boolean }

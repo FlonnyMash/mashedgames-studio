@@ -352,48 +352,44 @@ async function fetchStoreCatalog(options = {}) {
 
   try {
     // ------------------------------------------------------------------
-    // 1. Fetch the public template catalog (search + sort applied server-side).
+    // 1–4. Fetch catalog, profile→licenses, and claimed games in parallel.
     // ------------------------------------------------------------------
-    let catalog;
-    let tagInvalid = false;
+    const catalogPromise =
+      normalizedTags.length === 0
+        ? fetchCatalogRows(supabase, null, { sort, search }).then((rows) => ({
+            catalog: rows,
+            tagInvalid: false,
+          }))
+        : resolveMultiTagFilteredSlugs(supabase, normalizedTags).then(
+            async (resolved) => ({
+              catalog: await fetchCatalogRows(supabase, resolved.slugs, {
+                sort,
+                search,
+              }),
+              tagInvalid: resolved.tagInvalid,
+            }),
+          );
 
-    if (normalizedTags.length === 0) {
-      catalog = await fetchCatalogRows(supabase, null, { sort, search });
-    } else {
-      const resolved = await resolveMultiTagFilteredSlugs(supabase, normalizedTags);
-      tagInvalid = resolved.tagInvalid;
-      catalog = await fetchCatalogRows(supabase, resolved.slugs, { sort, search });
-    }
+    const licensesPromise = (async () => {
+      const { data: profile, error: profileError } = await withTimeout(
+        supabase
+          .from("profiles")
+          .select("organization_id")
+          .eq("id", userId)
+          .maybeSingle(),
+        QUERY_TIMEOUT_MS,
+      );
 
-    // ------------------------------------------------------------------
-    // 2. Resolve the user's organisation for license lookup.
-    // ------------------------------------------------------------------
-    const { data: profile, error: profileError } = await withTimeout(
-      supabase
-        .from("profiles")
-        .select("organization_id")
-        .eq("id", userId)
-        .maybeSingle(),
-      QUERY_TIMEOUT_MS,
-    );
+      if (profileError) {
+        console.error("[store] Failed to fetch user profile:", profileError.message);
+        return new Set();
+      }
 
-    if (profileError) {
-      console.error("[store] Failed to fetch user profile:", profileError.message);
-      // Non-fatal: return catalog with no entitlements rather than hard-failing.
-      return {
-        ok: true,
-        templates: catalog.map((t) => ({ ...t, isLicensed: false })),
-      };
-    }
+      const organizationId = profile?.organization_id ?? null;
+      if (!organizationId) {
+        return new Set();
+      }
 
-    const organizationId = profile?.organization_id ?? null;
-
-    // ------------------------------------------------------------------
-    // 3. Fetch active licenses for the organisation (if any).
-    // ------------------------------------------------------------------
-    let licensedIds = new Set();
-
-    if (organizationId) {
       const { data: licenses, error: licensesError } = await withTimeout(
         supabase
           .from("licenses")
@@ -404,47 +400,51 @@ async function fetchStoreCatalog(options = {}) {
 
       if (licensesError) {
         console.error("[store] Failed to fetch licenses:", licensesError.message);
-        // Non-fatal: surface catalog with no entitlements.
-      } else {
-        const now = new Date();
-        licensedIds = new Set(
-          (licenses ?? [])
-            .filter(
-              (l) => l.valid_until === null || new Date(l.valid_until) > now,
-            )
-            .map((l) => l.template_id),
-        );
+        return new Set();
       }
-    }
 
-    // ------------------------------------------------------------------
-    // 4. Fetch templates claimed into public.games by this user.
-    // ------------------------------------------------------------------
-    let claimedTemplateIds = new Set();
+      const now = new Date();
+      return new Set(
+        (licenses ?? [])
+          .filter(
+            (l) => l.valid_until === null || new Date(l.valid_until) > now,
+          )
+          .map((l) => l.template_id),
+      );
+    })();
 
-    const { data: claimedGames, error: claimedError } = await withTimeout(
-      supabase
-        .from("games")
-        .select("source_template_id")
-        .eq("owner_id", userId)
-        .not("source_template_id", "is", null),
-      QUERY_TIMEOUT_MS,
-    );
+    const claimedPromise = (async () => {
+      const { data: claimedGames, error: claimedError } = await withTimeout(
+        supabase
+          .from("games")
+          .select("source_template_id")
+          .eq("owner_id", userId)
+          .not("source_template_id", "is", null),
+        QUERY_TIMEOUT_MS,
+      );
 
-    if (claimedError) {
-      console.error("[store] Failed to fetch claimed games:", claimedError.message);
-    } else {
-      claimedTemplateIds = new Set(
+      if (claimedError) {
+        console.error("[store] Failed to fetch claimed games:", claimedError.message);
+        return new Set();
+      }
+
+      return new Set(
         (claimedGames ?? [])
           .map((g) => g.source_template_id)
           .filter((id) => typeof id === "string"),
       );
-    }
+    })();
+
+    const [catalogResult, licensedIds, claimedTemplateIds] = await Promise.all([
+      catalogPromise,
+      licensesPromise,
+      claimedPromise,
+    ]);
 
     // ------------------------------------------------------------------
     // 5. Enrich catalog with entitlement flag and return.
     // ------------------------------------------------------------------
-    const templates = catalog.map((t) => ({
+    const templates = catalogResult.catalog.map((t) => ({
       ...t,
       isLicensed: licensedIds.has(t.id) || claimedTemplateIds.has(t.id),
     }));

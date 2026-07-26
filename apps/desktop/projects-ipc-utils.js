@@ -7,52 +7,67 @@ const { callDashboardApi } = require("./admin-ipc-utils");
 // public.games directly in Electron, so they must be reachable via this proxy.
 const PROJECTS_API_PATH = /^\/api\/(?:projects|games)(?:\/|$)/;
 
-function normalizeProjectsFetchPathname(pathname) {
+/**
+ * Splits a fetch URL into pathname (for allowlist checks) and full path+query
+ * (for the upstream dashboard request). Query strings must be preserved —
+ * e.g. `/api/projects?mode=configurator`.
+ *
+ * @param {unknown} pathname
+ * @returns {{ path: string, requestPath: string }}
+ */
+function splitProjectsFetchUrl(pathname) {
   if (typeof pathname !== "string") {
-    return "";
+    return { path: "", requestPath: "" };
   }
 
   let normalized = pathname.trim();
   if (!normalized) {
-    return "";
+    return { path: "", requestPath: "" };
   }
+
+  let search = "";
 
   if (normalized.includes("://")) {
     try {
-      normalized = new URL(normalized).pathname;
+      const url = new URL(normalized);
+      normalized = url.pathname;
+      search = url.search;
     } catch {
-      return "";
+      return { path: "", requestPath: "" };
     }
-  }
-
-  const queryIndex = normalized.indexOf("?");
-  if (queryIndex >= 0) {
-    normalized = normalized.slice(0, queryIndex);
-  }
-
-  const hashIndex = normalized.indexOf("#");
-  if (hashIndex >= 0) {
-    normalized = normalized.slice(0, hashIndex);
+  } else {
+    const hashIndex = normalized.indexOf("#");
+    if (hashIndex >= 0) {
+      normalized = normalized.slice(0, hashIndex);
+    }
+    const queryIndex = normalized.indexOf("?");
+    if (queryIndex >= 0) {
+      search = normalized.slice(queryIndex);
+      normalized = normalized.slice(0, queryIndex);
+    }
   }
 
   if (normalized.length > 1 && normalized.endsWith("/")) {
     normalized = normalized.slice(0, -1);
   }
 
-  return normalized;
+  return {
+    path: normalized,
+    requestPath: `${normalized}${search}`,
+  };
 }
 
 function isAllowedProjectsFetchPath(pathname) {
-  const normalized = normalizeProjectsFetchPathname(pathname);
-  return PROJECTS_API_PATH.test(normalized);
+  const { path } = splitProjectsFetchUrl(pathname);
+  return PROJECTS_API_PATH.test(path);
 }
 
 async function handleProjectsApiFetch(_event, payload) {
-  const pathname = normalizeProjectsFetchPathname(payload?.pathname);
+  const { path, requestPath } = splitProjectsFetchUrl(payload?.pathname);
   const method = payload?.method ?? "GET";
   const body = payload?.body;
 
-  if (!isAllowedProjectsFetchPath(pathname)) {
+  if (!PROJECTS_API_PATH.test(path)) {
     console.warn("[projects-ipc] Blocked projects:api-fetch path:", payload?.pathname);
     return { ok: false, status: 403, error: "FORBIDDEN_PATH" };
   }
@@ -63,7 +78,7 @@ async function handleProjectsApiFetch(_event, payload) {
     init.body = JSON.stringify(body);
   }
 
-  return callDashboardApi(pathname, init);
+  return callDashboardApi(requestPath, init);
 }
 
 async function handleProjectsCreate(_event, payload) {
@@ -115,4 +130,4 @@ function registerProjectsIpc() {
   ipcMain.handle("projects:create", handleProjectsCreate);
 }
 
-module.exports = { registerProjectsIpc };
+module.exports = { registerProjectsIpc, splitProjectsFetchUrl, isAllowedProjectsFetchPath };

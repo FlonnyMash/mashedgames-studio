@@ -2,6 +2,7 @@ import { type NextRequest } from "next/server";
 import {
   CouponUploadInputSchema,
   emptyCouponTierCounts,
+  type CouponListItem,
   type CouponTierCounts,
 } from "@mashedgames/shared/coupon-contract";
 import { type PrizeTier } from "@mashedgames/shared/prize-tier";
@@ -24,9 +25,11 @@ function unauthorized(): Response {
 }
 
 /**
- * GET — returns the per-tier count of unused coupons for the game, so the
- * dashboard can show "X unused codes available for this tier". Owner scoping is
- * enforced by RLS on public.coupons.
+ * GET — returns two things in one round trip, both owner-scoped by RLS on
+ * public.coupons:
+ *   - `counts`: per-tier count of still-available coupons (current_uses <
+ *     max_uses), powering the "X codes available for this tier" hint.
+ *   - `coupons`: the full coupon list (newest first) for the management table.
  */
 export async function GET(
   request: NextRequest,
@@ -52,25 +55,37 @@ export async function GET(
   const supabase = createAnonSupabaseClient(env, bearerToken);
   const { data, error } = await supabase
     .from("coupons")
-    .select("prize_tier")
+    .select("id, code, prize_tier, max_uses, current_uses, created_at")
     .eq("game_id", gameId)
-    .eq("is_used", false);
+    .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("[games/coupons] GET count error:", error.message);
+    console.error("[games/coupons] GET list error:", error.message);
     return Response.json(
-      { ok: false, error: "Failed to load coupon counts." },
+      { ok: false, error: "Failed to load coupons." },
       { status: 500 },
     );
   }
 
   const counts: CouponTierCounts = emptyCouponTierCounts();
+  const coupons: CouponListItem[] = [];
+
   for (const row of data ?? []) {
     const tier = row.prize_tier as PrizeTier;
-    counts[tier] = (counts[tier] ?? 0) + 1;
+    if (row.current_uses < row.max_uses) {
+      counts[tier] = (counts[tier] ?? 0) + 1;
+    }
+    coupons.push({
+      id: row.id,
+      code: row.code,
+      prizeTier: tier,
+      maxUses: row.max_uses,
+      currentUses: row.current_uses,
+      createdAt: row.created_at,
+    });
   }
 
-  return Response.json({ ok: true, counts });
+  return Response.json({ ok: true, counts, coupons });
 }
 
 /**
@@ -120,7 +135,7 @@ export async function POST(
     );
   }
 
-  const { prizeTier, codes } = parsed.data;
+  const { prizeTier, codes, maxUses } = parsed.data;
   const totalSubmitted = codes.length;
 
   // Dedupe within the batch (codes are already trimmed by the schema).
@@ -163,6 +178,7 @@ export async function POST(
     game_id: gameId,
     prize_tier: prizeTier,
     code,
+    max_uses: maxUses,
   }));
 
   const { data: insertedRows, error: insertError } = await supabase

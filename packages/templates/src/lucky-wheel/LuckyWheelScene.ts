@@ -128,13 +128,9 @@ export class LuckyWheelScene extends Phaser.Scene {
     this.applyConfig(config);
   };
 
-  private boundGameStartHandler = (): void => {
-    this.startSpin();
-  };
-
   private boundControlHandler = (action: EngineControlAction): void => {
     if (action === "START_GAME") {
-      this.startSpin();
+      this.handleStartRequest();
       return;
     }
     if (action === "RESET_GAME") {
@@ -142,11 +138,10 @@ export class LuckyWheelScene extends Phaser.Scene {
     }
   };
 
-  private boundWindowGameStartHandler = (): void => {
-    this.startSpin();
-  };
-
   private boundLifecycleBridgeReadyHandler = (): void => {
+    // create() emits game-ready before the dashboard lifecycle bridge is bound —
+    // re-send so overlays unlock and post-game lead capture can mount.
+    this.emitLifecycle("game-ready", { timestamp: Date.now() });
     this.emitLifecycle("score-update", { score: 0, delta: 0 });
   };
 
@@ -163,6 +158,23 @@ export class LuckyWheelScene extends Phaser.Scene {
   private boundSpinButtonTapHandler = (): void => {
     this.startSpin();
   };
+
+  /**
+   * START_GAME from the dashboard (start screen / try-again) must not auto-spin
+   * after a win — that would emit ON_GAME_START and immediately dismiss lead
+   * capture. Reset to ready so the player can spin again.
+   */
+  private handleStartRequest(): void {
+    if (this.phase === "spinning" || this.phase === "dragging") {
+      return;
+    }
+    if (this.phase === "ended") {
+      this.resetGame();
+      this.emitLifecycle("game-start", { timestamp: Date.now() });
+      return;
+    }
+    this.startSpin();
+  }
 
   private boundSpinButtonOverHandler = (): void => {
     if (this.phase !== "ready") {
@@ -316,6 +328,7 @@ export class LuckyWheelScene extends Phaser.Scene {
 
     this.registerBridgeListeners();
     this.registerWheelInput();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layoutWorld, this);
     this.textures.on(Phaser.Textures.Events.ADD, this.boundTextureAddHandler);
     this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, this.boundLogoLoadError);
@@ -400,16 +413,10 @@ export class LuckyWheelScene extends Phaser.Scene {
     this.textures.off(Phaser.Textures.Events.ADD, this.boundTextureAddHandler);
     this.scale.off(Phaser.Scale.Events.RESIZE, this.layoutWorld, this);
     this.game.events.off("bridge:config-update", this.boundConfigHandler);
-    this.game.events.off("game-start", this.boundGameStartHandler);
     this.game.events.off("bridge:control", this.boundControlHandler);
     this.game.events.off(
       "lifecycle-bridge-ready",
       this.boundLifecycleBridgeReadyHandler,
-    );
-    window.removeEventListener("GAME_START", this.boundWindowGameStartHandler);
-    window.removeEventListener(
-      "ENGINE_START_GAME",
-      this.boundWindowGameStartHandler,
     );
     this.spinButtonBg?.off("pointerdown", this.boundSpinButtonTapHandler);
     this.spinButtonBg?.off("pointerover", this.boundSpinButtonOverHandler);
@@ -440,14 +447,14 @@ export class LuckyWheelScene extends Phaser.Scene {
 
   private registerBridgeListeners(): void {
     this.game.events.on("bridge:config-update", this.boundConfigHandler);
-    this.game.events.on("game-start", this.boundGameStartHandler);
+    // Prefer bridge:control only. GAME_START / ENGINE_START_GAME DOM events are
+    // also fired for the same START_GAME command — listening to both would
+    // reset-then-immediately-spin after a win and dismiss lead capture.
     this.game.events.on("bridge:control", this.boundControlHandler);
     this.game.events.on(
       "lifecycle-bridge-ready",
       this.boundLifecycleBridgeReadyHandler,
     );
-    window.addEventListener("GAME_START", this.boundWindowGameStartHandler);
-    window.addEventListener("ENGINE_START_GAME", this.boundWindowGameStartHandler);
   }
 
   private registerWheelInput(): void {
@@ -852,7 +859,11 @@ export class LuckyWheelScene extends Phaser.Scene {
   }
 
   private startSpin(options?: SpinOptions): void {
-    if (this.phase === "spinning" || this.phase === "dragging") {
+    if (
+      this.phase === "spinning" ||
+      this.phase === "dragging" ||
+      this.phase === "ended"
+    ) {
       return;
     }
     if (this.segments.length === 0) {

@@ -3,10 +3,6 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import {
-  fetchPublishedTemplatesCatalog,
-  type PublishedCatalogRow,
-} from "@/lib/storefront-catalog";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import {
   buildStorefrontHref,
@@ -14,11 +10,11 @@ import {
   storefrontTagSlugKey,
 } from "@/lib/storefront-search-params";
 import { canBrowseStoreWithoutAuth } from "@/lib/dev-store-access";
-import { supabase } from "@/lib/supabaseClient";
 import { useAuthStore } from "@/store/useAuthStore";
 import { useGameLibraryStore } from "@/store/useGameLibraryStore";
 import { useLicenseStore } from "@/store/useLicenseStore";
 import { usePlatformStore } from "@/store/usePlatformStore";
+import { useStoreCatalogStore } from "@/store/useStoreCatalogStore";
 import { fetchStoreTemplateDetail } from "@/lib/storefront-template-client";
 import { buildStorefrontEditorHref } from "@/lib/storefront-editor-routes";
 import { richTextToPlainText } from "@/lib/rich-html-content";
@@ -31,7 +27,6 @@ import { OwnershipBadge, TierBadge, type TemplateTier } from "@/lib/tier-config"
 import {
   applyStorefrontCatalogControls,
   parseManifest,
-  parseStorefrontSortOption,
   slugToTitle,
   type EnrichedTemplate,
   type StorefrontSortOption,
@@ -345,16 +340,6 @@ type TemplateStorefrontProps = {
 // Main storefront component
 // ---------------------------------------------------------------------------
 
-function enrichCatalogRows(
-  rows: PublishedCatalogRow[],
-  licensedIds: Set<string>,
-): EnrichedTemplate[] {
-  return rows.map((row) => ({
-    ...row,
-    isLicensed: row.id != null && licensedIds.has(row.id),
-  }));
-}
-
 export function TemplateStorefront({
   initialSearch = "",
   initialSort = "newest",
@@ -383,14 +368,22 @@ export function TemplateStorefront({
 
   const licensedTemplateIds = useLicenseStore((s) => s.licensedTemplateIds);
   const claimedTemplateIds = useGameLibraryStore((s) => s.claimedTemplateIds);
+  const cachedEntry = useStoreCatalogStore((s) => s.byTagKey[activeTagSlugKey]);
+  const loadCatalog = useStoreCatalogStore((s) => s.loadCatalog);
 
-  const [templates, setTemplates] = useState<EnrichedTemplate[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [templates, setTemplates] = useState<EnrichedTemplate[]>(
+    () => cachedEntry?.templates ?? [],
+  );
+  const [loading, setLoading] = useState(() => !cachedEntry);
   const [error, setError] = useState<string | null>(null);
-  const [isDevPreview, setIsDevPreview] = useState(false);
+  const [isDevPreview, setIsDevPreview] = useState(
+    () => cachedEntry?.isDevPreview ?? false,
+  );
   const [needsSignIn, setNeedsSignIn] = useState(false);
   const [activeTab, setActiveTab] = useState<StorefrontTab>("store");
-  const [tagFilterInvalid, setTagFilterInvalid] = useState(false);
+  const [tagFilterInvalid, setTagFilterInvalid] = useState(
+    () => cachedEntry?.tagInvalid ?? false,
+  );
   const [deepLinkTemplate, setDeepLinkTemplate] = useState<EnrichedTemplate | null>(null);
   const [deepLinkAdminPreview, setDeepLinkAdminPreview] = useState(false);
   const [searchInput, setSearchInput] = useState(initialSearch);
@@ -421,6 +414,15 @@ export function TemplateStorefront({
   ]);
 
   useEffect(() => {
+    if (cachedEntry) {
+      setTemplates(cachedEntry.templates);
+      setIsDevPreview(cachedEntry.isDevPreview);
+      setTagFilterInvalid(cachedEntry.tagInvalid);
+      setLoading(false);
+    }
+  }, [cachedEntry]);
+
+  useEffect(() => {
     if (!userId && !devStorePreview) {
       setLoading(false);
       return;
@@ -429,71 +431,37 @@ export function TemplateStorefront({
     let cancelled = false;
 
     async function load() {
-      setLoading(templates.length === 0);
+      const hasCache = Boolean(
+        useStoreCatalogStore.getState().byTagKey[activeTagSlugKey],
+      );
+      setLoading(!hasCache);
       setError(null);
-      setIsDevPreview(false);
       setNeedsSignIn(false);
-      setTagFilterInvalid(false);
 
       try {
-        let enriched: EnrichedTemplate[];
-        let devPreview = false;
+        const entry = await loadCatalog(activeTagSlugs);
+        if (cancelled) return;
 
-        if (typeof window !== "undefined" && window.electron) {
-          type IpcResponse =
-            | { ok: true; templates: EnrichedTemplate[]; _devPreview?: boolean }
-            | { ok: false; error: string };
-
-          const result = (await window.electron.ipcRenderer.invoke(
-            "store:load-catalog",
-            { tagSlugs: activeTagSlugs },
-          )) as IpcResponse;
-
-          if (!result.ok) {
-            if (result.error === "NOT_AUTHENTICATED") {
-              if (!cancelled) {
-                setNeedsSignIn(true);
-                setLoading(false);
-              }
-              return;
-            }
-            throw new Error(result.error ?? "Failed to load templates.");
-          }
-
-          enriched = result.templates;
-          devPreview = result._devPreview === true;
-        } else {
-          if (userId) {
-            await supabase.auth.refreshSession();
-          }
-
-          const [catalogResult] = await Promise.all([
-            fetchPublishedTemplatesCatalog(activeTagSlugs),
-            userId
-              ? useLicenseStore.getState().fetchLicenses(userId)
-              : Promise.resolve(),
-            userId
-              ? useGameLibraryStore.getState().fetchClaimedTemplates()
-              : Promise.resolve(),
-          ]);
-
-          if (!cancelled && catalogResult.tagInvalid) {
-            setTagFilterInvalid(true);
-          }
-
-          const ids = useLicenseStore.getState().licensedTemplateIds;
-          enriched = enrichCatalogRows(catalogResult.templates, ids);
+        if (
+          entry.templates.length === 0 &&
+          !userId &&
+          !devStorePreview
+        ) {
+          setNeedsSignIn(true);
         }
 
-        if (!cancelled) {
-          setTemplates(enriched);
-          setIsDevPreview(devPreview);
-        }
+        setTemplates(entry.templates);
+        setIsDevPreview(entry.isDevPreview);
+        setTagFilterInvalid(entry.tagInvalid);
       } catch (err) {
         if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Failed to load templates.",
-          );
+          const message =
+            err instanceof Error ? err.message : "Failed to load templates.";
+          if (message === "NOT_AUTHENTICATED") {
+            setNeedsSignIn(true);
+          } else {
+            setError(message);
+          }
         }
       } finally {
         if (!cancelled) {
@@ -506,7 +474,7 @@ export function TemplateStorefront({
     return () => {
       cancelled = true;
     };
-  }, [activeTagSlugKey, devStorePreview, userId]);
+  }, [activeTagSlugKey, activeTagSlugs, devStorePreview, loadCatalog, userId]);
 
   useEffect(() => {
     if (!templateParam) {

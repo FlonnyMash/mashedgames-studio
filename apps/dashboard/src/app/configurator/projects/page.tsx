@@ -2,7 +2,6 @@
 
 import {
   ProjectListRow,
-  type ProjectSummary,
 } from "@/components/configurator/ProjectListRow";
 import { ParentTemplateDropdown } from "@/components/configurator/ParentTemplateDropdown";
 import type { TemplateOverviewEntry } from "@/lib/template-overview-types";
@@ -11,18 +10,38 @@ import { Loader2, Plus, Upload, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createProjectViaApi, projectFetch } from "@/lib/project-api-client";
+import { createProjectViaApi } from "@/lib/project-api-client";
 import { getProjectsStoragePathLabel } from "@/lib/workspace-ui-copy";
 import { useWorkspaceSessionStore } from "@/lib/workspace-session-store";
+import { useProjectsListStore } from "@/store/useProjectsListStore";
 
 const CLIENT_LOGO_ACCEPT = "image/png,image/jpeg,image/webp,image/svg+xml,image/gif";
 const MAX_CLIENT_LOGO_BYTES = 4 * 1024 * 1024;
 
+function ProjectCardSkeleton() {
+  return (
+    <div className="flex min-h-[220px] animate-pulse flex-col overflow-hidden rounded-md border border-zinc-100 bg-white">
+      <div className="aspect-[16/10] bg-zinc-100" />
+      <div className="flex flex-1 flex-col gap-2.5 p-4">
+        <div className="h-4 w-2/3 rounded bg-zinc-200" />
+        <div className="flex gap-1.5">
+          <div className="h-5 w-20 rounded-sm bg-zinc-100" />
+          <div className="h-5 w-12 rounded-sm bg-zinc-100" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ConfiguratorProjectsPage() {
   const router = useRouter();
   const logoInputRef = useRef<HTMLInputElement>(null);
-  const [projects, setProjects] = useState<ProjectSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+  const projects = useProjectsListStore((s) => s.projects);
+  const loading = useProjectsListStore((s) => s.isLoading && !s.hasLoaded);
+  const storeError = useProjectsListStore((s) => s.error);
+  const loadProjects = useProjectsListStore((s) => s.loadProjects);
+  const patchDisplayName = useProjectsListStore((s) => s.patchDisplayName);
+  const removeLocal = useProjectsListStore((s) => s.removeLocal);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -42,6 +61,8 @@ export default function ConfiguratorProjectsPage() {
       [],
     [libraryTemplates],
   );
+
+  const listError = storeError;
 
   useEffect(() => {
     if (!isCreateModalOpen) return;
@@ -82,30 +103,10 @@ export default function ConfiguratorProjectsPage() {
     };
   }, [isCreateModalOpen]);
 
-  const loadProjects = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await projectFetch("/api/projects?mode=configurator");
-      const data = (await response.json()) as {
-        ok?: boolean;
-        projects?: ProjectSummary[];
-      };
-      if (data.ok && data.projects) {
-        setProjects(
-          data.projects.filter(
-            (p): p is ProjectSummary => "displayName" in p && !("error" in p),
-          ),
-        );
-      }
-    } catch {
-      setError("Could not load projects.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    void loadProjects();
+    void loadProjects().catch(() => {
+      // Error is stored on the projects list store.
+    });
   }, [loadProjects]);
 
   const resetCreateForm = useCallback(() => {
@@ -162,6 +163,7 @@ export default function ConfiguratorProjectsPage() {
       if (!data.ok || !data.projectId) {
         throw new Error(data.error ?? "Create failed.");
       }
+      void loadProjects({ force: true }).catch(() => {});
       router.push(`/configurator?project=${data.projectId}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Create failed.");
@@ -170,26 +172,24 @@ export default function ConfiguratorProjectsPage() {
     }
   };
 
-  const handleProjectUpdated = useCallback((manifest: GameProjectManifest) => {
-    setProjects((current) =>
-      current.map((project) =>
-        project.projectId === manifest.projectId
-          ? { ...project, displayName: manifest.displayName }
-          : project,
-      ),
-    );
-  }, []);
+  const handleProjectUpdated = useCallback(
+    (manifest: GameProjectManifest) => {
+      patchDisplayName(manifest.projectId, manifest.displayName);
+    },
+    [patchDisplayName],
+  );
 
-  const handleProjectDeleted = useCallback((projectId: string) => {
-    const { activeConfiguratorProjectId, clearConfiguratorSession } =
-      useWorkspaceSessionStore.getState();
-    if (activeConfiguratorProjectId === projectId) {
-      clearConfiguratorSession();
-    }
-    setProjects((current) =>
-      current.filter((project) => project.projectId !== projectId),
-    );
-  }, []);
+  const handleProjectDeleted = useCallback(
+    (projectId: string) => {
+      const { activeConfiguratorProjectId, clearConfiguratorSession } =
+        useWorkspaceSessionStore.getState();
+      if (activeConfiguratorProjectId === projectId) {
+        clearConfiguratorSession();
+      }
+      removeLocal(projectId);
+    },
+    [removeLocal],
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-10">
@@ -233,34 +233,29 @@ export default function ConfiguratorProjectsPage() {
           </span>
         </button>
 
-        {loading ? (
-          <div className="col-span-full flex items-center justify-center py-16">
-            <p className="flex items-center gap-2 text-sm text-zinc-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading projects…
-            </p>
-          </div>
-        ) : (
-          projects.map((project) => (
-            <ProjectListRow
-              key={project.projectId}
-              project={project}
-              onUpdated={handleProjectUpdated}
-              onDeleted={handleProjectDeleted}
-            />
-          ))
-        )}
+        {loading
+          ? Array.from({ length: 3 }).map((_, index) => (
+              <ProjectCardSkeleton key={index} />
+            ))
+          : projects.map((project) => (
+              <ProjectListRow
+                key={project.projectId}
+                project={project}
+                onUpdated={handleProjectUpdated}
+                onDeleted={handleProjectDeleted}
+              />
+            ))}
       </div>
 
-      {!loading && projects.length === 0 && !error ? (
+      {!loading && projects.length === 0 && !listError ? (
         <p className="text-center text-sm text-zinc-400">
           No projects yet — use the card above to get started.
         </p>
       ) : null}
 
-      {error && !isCreateModalOpen ? (
+      {listError && !isCreateModalOpen ? (
         <p className="text-sm text-red-600" role="alert">
-          {error}
+          {listError}
         </p>
       ) : null}
 
